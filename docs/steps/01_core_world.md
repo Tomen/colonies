@@ -8,6 +8,7 @@ Implement the foundational world generation and hydrology systems.
 - Run hydrology model to ensure rivers flow to ocean and avoid sinks.
 - Score coastline for harbor suitability and place a single initial port.
 - Output raster grids: height, flow accumulation, moisture.
+- Output as .png
 - Document algorithms and data structures in [`docs/architecture.md`](../architecture.md).
 
 ## Testing & Acceptance
