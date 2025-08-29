@@ -1,4 +1,4 @@
-import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh } from './types';
+import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh } from '../types';
 
 export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
   throw new Error('generateTerrain not implemented');

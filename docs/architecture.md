@@ -12,14 +12,17 @@ milestones distilled from the original INPUT.
 - **Rendering/export** – classical map renderer and GIF exporter.
 
 ## Modules
-These modules will grow as steps are implemented:
-Initial stubs reside under `src/`.
+Modules are organized under `src/` by responsibility:
 - `types.ts` – shared type definitions.
-- `worldgen.ts` – physical layer generation.
-- `transport.ts` – network creation and pathfinding.
-- `growth.ts` – land use, parcels, settlements, and economy.
-- `render.ts` – map rendering.
-- `export_gif.ts` – GIF export utility.
+- `physical/generate.ts` – terrain, hydrology and land‑mesh generation.
+- `network/graph.ts` – movement graph creation and edge costs.
+- `sim/flows.ts` – build origin‑destination bundles and route flows.
+- `sim/upgrades.ts` – promote trails, open ferries and build bridges.
+- `landuse/update.ts` – land‑use transitions and forest regrowth.
+- `society/settlements.ts` – settlement growth and ranking.
+- `industries/site_select.ts` – industry site scoring and activation.
+- `render/index.ts` – WebGL2 rendering layers.
+- `export/gif.ts` – time‑lapse GIF capture.
 
 Each implementation step must update this document with new modules,
 interfaces, and data flows.
