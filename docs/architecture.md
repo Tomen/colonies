@@ -28,3 +28,14 @@ Modules are organized under `src/` by responsibility:
 
 Each implementation step must update this document with new modules,
 interfaces, and data flows.
+
+## Current Implementation Details
+
+### Physical generation
+
+The initial world generator is intentionally minimal and deterministic. Terrain
+is produced on a coarse 1 km grid where elevation declines linearly toward the
+coast. A single east‑flowing river is synthesised by placing three nodes along
+the map's midline and linking them with two edges. The land mesh consists of one
+polygonal cell bounded by the coastline and map extents, providing a simple
+half‑edge structure for downstream modules.
