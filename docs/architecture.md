@@ -13,6 +13,7 @@ milestones distilled from the original INPUT.
 
 ## Modules
 These modules will grow as steps are implemented:
+Initial stubs reside under `src/`.
 - `types.ts` – shared type definitions.
 - `worldgen.ts` – physical layer generation.
 - `transport.ts` – network creation and pathfinding.
