@@ -1,22 +1,24 @@
+import { expect, test } from 'vitest';
+// This suite simply verifies that all stubbed modules expose callable functions.
 import {
   generateTerrain,
   buildHydro,
   buildLandMesh
-} from '../src/worldgen';
+} from '../src/physical/generate';
 import {
   initNetwork,
-  edgeCost,
-  buildOD,
-  routeFlowsAndAccumulateUsage,
-  applyUpgrades
-} from '../src/transport';
+  edgeCost
+} from '../src/network/graph';
 import {
-  updateLandUse,
-  updateSettlements,
-  updateIndustries
-} from '../src/growth';
+  buildOD,
+  routeFlowsAndAccumulateUsage
+} from '../src/sim/flows';
+import { applyUpgrades } from '../src/sim/upgrades';
+import { updateLandUse } from '../src/landuse/update';
+import { updateSettlements } from '../src/society/settlements';
+import { updateIndustries } from '../src/industries/site_select';
 import { renderFrame } from '../src/render';
-import { captureIfDue } from '../src/export_gif';
+import { captureIfDue } from '../src/export/gif';
 
 test('stub functions exist', () => {
   expect(typeof generateTerrain).toBe('function');
