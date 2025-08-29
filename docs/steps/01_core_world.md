@@ -3,7 +3,7 @@
 Implement the foundational world generation and hydrology systems.
 
 ## Tasks
-- Implement seeded RNG and JSON configuration loader.
+- [x] Implement seeded RNG and JSON configuration loader.
 - Generate 10×10 km height map using noise with ridge orientation controls.
 - Run hydrology model to ensure rivers flow to ocean and avoid sinks.
 - Score coastline for harbor suitability and place a single initial port.

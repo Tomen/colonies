@@ -14,6 +14,8 @@ milestones distilled from the original INPUT.
 ## Modules
 Modules are organized under `src/` by responsibility:
 - `types.ts` – shared type definitions.
+- `core/rng.ts` – seeded deterministic random number generator.
+- `config/` – default parameters, JSON Schema, and config loader.
 - `physical/generate.ts` – terrain, hydrology and land‑mesh generation.
 - `network/graph.ts` – movement graph creation and edge costs.
 - `sim/flows.ts` – build origin‑destination bundles and route flows.
