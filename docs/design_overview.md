@@ -1,103 +1,68 @@
-# Simulation Design Overview
+# Project Brief and Implementation Plan
 
-This document condenses the requirements from the original `INPUT.md` file so it can be safely removed.
-It describes the vision, layers, entities, and validation criteria for the Colonies simulation.
+This document captures the agreed‑upon scope for **EastCoast Colonies v1**. It replaces earlier drafts and guides development and testing.
 
-## Vision
-- Generate an American East‑Coast–like map with coastline, rivers and ridges.
-- Let time advance as households claim land, clear forests, build roads, and grow
-  into towns and cities.
-- Present the process as a classical 2D/2.5D map with a time‑lapse of growth.
+## Project Brief
+- 10×10 km map where the eastern edge is an ocean margin (~400 m).
+- Watch‑only time‑lapse starting at Year 0 with quarterly ticks; runs indefinitely.
+- Light historic flavor focusing on fall line, timber and water power.
+- Transport modes: overland trails/roads, river navigation and coastal shipping.
+- No budgets, money or politics; pure geography‑driven economy.
+- Industries: mills, shipyards, ironworks/charcoal, brickworks, woodworking.
+- Simulation runs on CPU for determinism; rendering uses WebGL2.
+- Input and save files use validated JSON with a deterministic seed.
+- Export: time‑lapse GIF at configured cadence.
 
 ## Architecture
-- Deterministic RNG with seed; data‑driven configuration via JSON/TOML.
-- Modular design or ECS with job system/workers for long steps.
-- Clean separation between simulation (ticks) and rendering.
+Layers and their responsibilities:
+1. **Physical** – terrain raster, hydro network and Voronoi land mesh.
+2. **Land‑use** – mutable land‑state per cell (forest, field, pasture, manufactory, town) and forest age.
+3. **Network** – road graph on land‑mesh half‑edges, river/coast segments, ports, landings and crossings.
+4. **Simulation** – quarterly tick orchestrating settlements, land use, industries, flows and upgrades.
+5. **Rendering & Export** – WebGL2 map layers and deterministic GIF capture.
 
-## Physical Layer (World Representation)
-- **Heightfield:** coastal plain, single inland ridge belt, many west→east rivers;
-  knobs for ridge orientation and river density.
-- **Hydrology:** flow direction & accumulation, river graph, lakes/estuaries.
-- **Soils & fertility:** derived from elevation, slope, coast and river proximity.
-- **Vegetation:** age‑structured forest map with regrowth and clearing costs.
-- **Climate/seasonality:** optional seasonal multipliers for productivity and travel.
-- Data stored as raster grids (height, fertility, forest age, moisture) and vector
-  sets (coastline, rivers, water bodies).
+Determinism rules:
+- No `Math.random`/`Date.now`; a seeded RNG is threaded through generators.
+- Stable iteration orders and fixed counts for algorithms.
+- Avoid floating‑point nondeterminism by consistent traversal and sample counts.
+- Single source of truth for parameters; unknown config keys are rejected.
 
-## Cadastral Layer (Parcels & Ownership)
-- DCEL/half‑edge overlay storing parcel polygons.
-- Parcel generation anchored on coastlines, river bends or road junctions with
-  metes‑and‑bounds bearings and area constraints.
-- Edges snap to rivers/roads or straight bearings; topology must remain valid.
-- Parcels track owner id, tenure, and current land use (forest, field, pasture,
-  manufactory, town lots).
+### Physical Layer
+World generation proceeds through three deterministic stages:
+1. `generateTerrain` produces a `TerrainGrid` from noise, filling depressions, deriving slope and fertility and tracing the coastline with near‑shore depth samples.
+2. `buildHydro` applies flow direction and accumulation to extract rivers, simplify them into polylines and construct a directed `RiverGraph` with widths, orders and fall‑line markers.
+3. `buildLandMesh` Poisson‑samples land (denser near water), performs Delaunay triangulation and Voronoi clipping to land, then annotates cells and half‑edges with terrain and hydro attributes including `heCrossesRiver` and `heIsCoast`.
 
-## Network Layer (Movement & Infrastructure)
-- Nodes: settlements, crossings, ports, intersections, mills.
-- Edges: trails/roads/turnpikes and optional river/coastal routes with quality &
-  usage counters.
-- Edge cost = surface cost × slope factor × land‑cover factor + crossing/toll
-  penalties; seasonal modifiers possible.
-- Desire‑lines: OD trips use A*; accumulated usage upgrades edges and opens
-  ferries then bridges at good crossings.
+The best‑scoring harbor cell becomes the initial port. These physical datasets remain immutable during simulation.
 
-## Settlements & Urbanization
-- Settlement entities hold population, services, industries and port status; ranks
-  progress hamlet → village → town → city.
-- Seeds at sheltered harbors or river mouths; secondary seeds at fall line and
-  crossroads.
-- Growth driven by attractiveness (market access, harbor quality, flat land,
-  resources, governance). Streets begin organic then adopt grids.
+## Repository Layout
+```
+/src
+  core        – RNG, schema helpers, math
+  physical    – TerrainGrid, HydroNetwork, LandMesh generators
+  landuse     – land state & transitions
+  network     – pathfinding, usage, upgrades, crossings
+  sim         – tick orchestration & flow routing
+  render      – WebGL2 layers
+  export      – GIF recorder
+  config      – default JSON, types, schema
+/tests
+```
 
-## Economy, Land Use & Resources
-- Minimal goods: food, timber, lumber, charcoal, iron goods, textiles, bricks,
-  tools; data‑driven recipes connect inputs to outputs.
-- Agriculture uses parcel fertility/acreage with simple rotation; forests yield
-  timber and regrow over time.
-- Industries (mills, shipyards, ironworks, brickworks, woodworking) spawn where
-  required inputs and power are available.
-- Each tick routes goods along the network to satisfy demand; prices optional.
+## Core Data Models
+Interfaces live in [`src/types.ts`](../src/types.ts) and include `TerrainGrid`, `HydroNetwork`, `LandMesh`, `LandState`, `NetState`, `Settlement`, `Sim`, and enums for `LandUse` and `RoadClass`.
 
-## Agents & Governance
-- Households choose to claim land, migrate, or work based on wages and access.
-- Enterprises open industries when ROI thresholds are met.
-- Governance approves bridges, sets tolls, maintains roads, and forms counties and
-  states over time.
+## Simulation Loop
+Each quarterly tick executes:
+1. `updateSettlements`
+2. `updateLandUse`
+3. `updateIndustries`
+4. `routeFlowsAndAccumulateUsage`
+5. `applyUpgrades`
+6. `updateAgesAndWindows`
 
-## Time & Simulation Loop
-Each tick (monthly or seasonal):
-1. Apply seasonal modifiers.
-2. Update population via births, deaths, migration.
-3. Handle parcel claims, forest clearing and field rotation.
-4. Produce goods from farms, forests and industries.
-5. Route trade, update edge usage, upgrade infrastructure.
-6. Grow settlements and lay out new streets.
-7. Apply governance decisions.
-
-## Configuration
-Editable knobs include terrain shape, harbor scoring weights, parcel size and
-frontage bias, network costs & upgrade thresholds, crop yields, migration rates,
-and governance parameters. Changing configs should not require recompiling.
-
-## Testing & Validation
-- Unit tests for DCEL operations, hydrology mass conservation and pathfinding.
-- Golden seeds with KPIs (bridge count, travel times, parcel counts) to detect
-  regressions.
-- Emergent pattern checks: ports at harbors, fall‑line towns/mills, bridges at
-  narrowings, evolving parcel orientation from water‑ to road‑frontage.
-
-## Project Structure & Milestones
-Suggested folders: `engine/` (core, math, sim, render), `tools/` for editors,
-`config/` for knobs, `tests/` for unit and golden cases, `assets/` for symbols.
-
-Milestones:
-1. **M1 Physical world** – terrain, hydrology, soils, vegetation.
-2. **M2 Parcels & claims** – DCEL overlay and parcel generator.
-3. **M3 Movement network** – pathfinding, desire lines, ferries/bridges.
-4. **M4 Settlements & streets** – growth and street generation.
-5. **M5 Economy & resources** – goods, industries, trade routing.
-6. **M6 Governance & states** – counties, bridges, tolls, state formation.
-7. **M7 Polish** – classical rendering, labels, export, save/load, performance.
-
-This overview replaces the previous `INPUT.md` and should be kept up to date as
-the implementation proceeds.
+## Testing & Done Criteria
+- Deterministic replays from seed + params.
+- Hydrology invariants: rivers reach the sea; `heCrossesRiver` matches geometry.
+- Golden seed after 40 years: ≥1 bridge, mill at fall line, shipyard at port, reasonable road growth and reduced forest near roads.
+- All steps follow the repository [Definition of Done](definition_of_done.md).

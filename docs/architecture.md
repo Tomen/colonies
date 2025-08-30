@@ -1,41 +1,40 @@
 # Architecture Overview
 
-This file summarizes the software architecture for implementing the Colonies simulation.
-See [`design_overview.md`](design_overview.md) for the full specification and
-milestones distilled from the original INPUT.
+This document summarises the software architecture for **EastCoast Colonies v1**. See [`design_overview.md`](design_overview.md) for the project brief and guiding principles.
 
 ## Layered Structure
-- **Physical layer** – terrain, hydrology, soils and vegetation grids.
-- **Cadastral layer** – parcel DCEL and ownership/land‑use attributes.
-- **Network layer** – movement graph with roads, ferries and bridges.
-- **Society layer** – settlements, population, economy and governance.
-- **Rendering/export** – classical map renderer and GIF exporter.
+- **Physical** – terrain rasters, hydro graph and Voronoi land mesh.
+- **Land‑use** – per‑cell land state and forest age.
+- **Network** – roads on land‑mesh half‑edges, river/coast segments, ports and crossings.
+- **Simulation** – quarterly tick orchestrating settlements, land use, industries, flows and upgrades.
+- **Rendering & Export** – WebGL2 layers and GIF recorder.
 
 ## Modules
-Modules are organized under `src/` by responsibility:
-- `types.ts` – shared type definitions.
-- `core/rng.ts` – seeded deterministic random number generator.
-- `config/` – default parameters, JSON Schema, and config loader.
-- `physical/generate.ts` – terrain, hydrology and land‑mesh generation.
-- `network/graph.ts` – movement graph creation and edge costs.
-- `sim/flows.ts` – build origin‑destination bundles and route flows.
-- `sim/upgrades.ts` – promote trails, open ferries and build bridges.
-- `landuse/update.ts` – land‑use transitions and forest regrowth.
-- `society/settlements.ts` – settlement growth and ranking.
-- `industries/site_select.ts` – industry site scoring and activation.
-- `render/index.ts` – WebGL2 rendering layers.
-- `export/gif.ts` – time‑lapse GIF capture.
+Source code is organized under `src/`:
+- `core/` – RNG, schema utilities, math helpers.
+- `config/` – default JSON, schema and loader.
+- `physical/` – `generateTerrain`, `buildHydro`, `buildLandMesh`.
+- `landuse/` – `updateLandUse` and land‑state helpers.
+- `network/` – `initNetwork`, `edgeCost` and pathfinding utilities.
+- `sim/` – tick orchestration, flow routing and infrastructure upgrades.
+- `society/` – settlement growth logic.
+- `industries/` – site scoring and activation.
+- `render/` – WebGL2 rendering entry point.
+- `export/` – GIF capture helpers.
 
-Each implementation step must update this document with new modules,
-interfaces, and data flows.
+Interfaces for these modules reside in [`src/types.ts`](../src/types.ts).
+
+## Physical Layer
+World generation builds three immutable structures in sequence:
+1. `generateTerrain` creates a `TerrainGrid` raster from noise, fills depressions,
+   derives slope and fertility and traces the coastline with near‑shore depth samples.
+2. `buildHydro` runs flow direction and accumulation over the terrain to extract rivers,
+   simplify polylines and construct a directed `RiverGraph` with width, order and fall‑line markers.
+3. `buildLandMesh` Poisson‑samples land sites (denser near water), forms a Delaunay triangulation
+   and Voronoi diagram clipped to land, then annotates cells and half‑edges with terrain and hydro
+   attributes including `heCrossesRiver` and `heIsCoast` flags.
+
+These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
-
-### Physical generation
-
-The initial world generator is intentionally minimal and deterministic. Terrain
-is produced on a coarse 1 km grid where elevation declines linearly toward the
-coast. A single east‑flowing river is synthesised by placing three nodes along
-the map's midline and linking them with two edges. The land mesh consists of one
-polygonal cell bounded by the coastline and map extents, providing a simple
-half‑edge structure for downstream modules.
+The prototype world generator produces a 1 km grid with a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.
