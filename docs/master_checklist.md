@@ -5,7 +5,7 @@ Execute each step in order, marking completion after satisfying the [Definition 
 
 1. [x] [Step 0: Project Setup](steps/00_project_setup.md)
 2. [ ] [Step 1: Core World Generation](steps/01_core_world.md) – terrain & hydrology prototypes implemented
-   - Debug render site automation publishes five random seeds for visual inspection.
+   - Debug render site automation publishes five random seeds on a 50×50 grid with 10 px cells (25% size) for visual inspection.
 3. [ ] [Step 2: Transport Network](steps/02_transport.md)
 4. [ ] [Step 3: Land Use and Settlements](steps/03_growth.md)
 5. [ ] [Step 4: Industry Sites](steps/04_industries.md)
