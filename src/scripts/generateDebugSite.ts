@@ -85,6 +85,7 @@ function writeRun(outDir: string, idx: number, seed: number): RunRecord {
   const runConfig: Config = {
     ...defaultConfig,
     seed,
+    map: { ...defaultConfig.map, size_km: [50, 50] },
     debug: { export_grids: false, output_dir: '' },
   };
   const terrain = generateTerrain(runConfig, createRNG(seed));
@@ -139,7 +140,7 @@ function buildHtml(runs: RunRecord[]): string {
   <script>
     const manifest = JSON.parse(document.getElementById('manifest').textContent);
     const container = document.getElementById('runs');
-    const pixelSize = 40;
+    const pixelSize = 10;
 
     async function loadRun(run) {
       const res = await fetch(run.file);
