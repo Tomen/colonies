@@ -24,6 +24,8 @@ export interface HydroNetwork {
   coast: PolylineSet;
   fallLine: { nodeIds: Uint32Array; xy: Float32Array };
   distToRiverM?: Float32Array; distToCoastM?: Float32Array;
+  harbor: HarborSite;
+  harborScores: Float32Array;
 }
 
 export interface LandMesh {
@@ -110,4 +112,14 @@ export interface PolylineSet {
   // Placeholder for geometry collection
   lines: Float32Array;
   offsets: Uint32Array;
+}
+
+export interface HarborSite {
+  cellId: number;
+  x: number;
+  y: number;
+  score: number;
+  depthM: number;
+  exposure: number;
+  shelter: number;
 }

@@ -33,7 +33,10 @@ World generation proceeds through three deterministic stages:
 2. `buildHydro` applies flow direction and accumulation to extract rivers, simplify them into polylines and construct a directed `RiverGraph` with widths, orders and fall‑line markers.
 3. `buildLandMesh` Poisson‑samples land (denser near water), performs Delaunay triangulation and Voronoi clipping to land, then annotates cells and half‑edges with terrain and hydro attributes including `heCrossesRiver` and `heIsCoast`.
 
-The best‑scoring harbor cell becomes the initial port. These physical datasets remain immutable during simulation.
+The best‑scoring harbor cell becomes the initial port, chosen by blending depth, shelter and exposure
+signals from the coastline polyline and `nearshoreDepthM` using weights in `cfg.worldgen.harbor`.
+Hydrology stores the winning harbor and the coastline score grid so the network layer can seed an
+initial port deterministically. These physical datasets remain immutable during simulation.
 
 ## Repository Layout
 ```
