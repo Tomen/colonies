@@ -27,8 +27,7 @@ Interfaces for these modules reside in [`src/types.ts`](../src/types.ts).
 ## Physical Layer
 World generation builds three immutable structures in sequence:
 1. `generateTerrain` creates a `TerrainGrid` raster from simplex noise seeded via the game RNG. Relief strength and ridge orientation come from `cfg.worldgen`, then slope and fertility are derived before tracing the coastline with near‑shore depth samples.
-2. `buildHydro` runs flow direction and accumulation over the terrain to extract rivers,
-   simplify polylines and construct a directed `RiverGraph` with width, order and fall‑line markers.
+2. `buildHydro` runs D∞ flow direction and accumulation over the terrain, using a small eastward tilt to bias outlets toward the coast. Accumulation is converted into channels based on `cfg.worldgen.river_density`, then traced into polylines that terminate at coastal mouth nodes. Each directed edge stores discharge, width, slope and Strahler order, and fall‑line nodes are flagged where downstream slopes exceed a threshold.
 3. `buildLandMesh` Poisson‑samples land sites (denser near water), forms a Delaunay triangulation
    and Voronoi diagram clipped to land, then annotates cells and half‑edges with terrain and hydro
    attributes including `heCrossesRiver` and `heIsCoast` flags.
@@ -36,4 +35,4 @@ World generation builds three immutable structures in sequence:
 These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
-The prototype world generator produces a 1 km grid using seeded simplex noise with adjustable ridge orientation. It derives per‑cell slope and fertility, then adds a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.
+The prototype world generator produces a 1 km grid using seeded simplex noise with adjustable ridge orientation. It derives per‑cell slope and fertility, then computes D∞ routing and flow accumulation to extract a river graph that conserves discharge to the coastline. River polylines are simplified into directed edges with width, order and fordability estimates, fall‑line nodes are marked on steep downstream reaches, and a one‑cell land mesh is retained so downstream systems can be exercised deterministically during Step 1.
