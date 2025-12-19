@@ -1,5 +1,213 @@
+import { Delaunay } from 'd3-delaunay';
 import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh, PolylineSet } from '../types';
 import { createNoise2D } from './noise';
+
+const EPS = 1e-6;
+
+type Point = [number, number];
+
+function clampIndex(v: number, max: number): number {
+  return Math.min(max - 1, Math.max(0, v));
+}
+
+function pointSegmentDistance(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const wx = px - ax;
+  const wy = py - ay;
+  const c1 = vx * wx + vy * wy;
+  if (c1 <= 0) return Math.hypot(px - ax, py - ay);
+  const c2 = vx * vx + vy * vy;
+  if (c2 <= c1) return Math.hypot(px - bx, py - by);
+  const t = c1 / c2;
+  const projX = ax + vx * t;
+  const projY = ay + vy * t;
+  return Math.hypot(px - projX, py - projY);
+}
+
+function orientation(ax: number, ay: number, bx: number, by: number, cx: number, cy: number) {
+  return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+function segmentsIntersect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number
+): boolean {
+  const o1 = orientation(ax, ay, bx, by, cx, cy);
+  const o2 = orientation(ax, ay, bx, by, dx, dy);
+  const o3 = orientation(cx, cy, dx, dy, ax, ay);
+  const o4 = orientation(cx, cy, dx, dy, bx, by);
+
+  const denom = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+  if (Math.abs(o1) < EPS && Math.abs(o2) < EPS && Math.abs(denom) < EPS) {
+    const inRange = (p: number, q: number, r: number) =>
+      Math.min(p, q) - EPS <= r && r <= Math.max(p, q) + EPS;
+    return (
+      inRange(ax, bx, cx) && inRange(ay, by, cy) ||
+      inRange(ax, bx, dx) && inRange(ay, by, dy)
+    );
+  }
+
+  const straddle1 = o1 * o2 <= 0;
+  const straddle2 = o3 * o4 <= 0;
+  return straddle1 && straddle2;
+}
+
+function forEachSegment(set: PolylineSet, fn: (a: Point, b: Point) => void) {
+  if (!set.offsets.length) return;
+  for (let i = 0; i < set.offsets.length - 1; i++) {
+    const start = set.offsets[i];
+    const end = set.offsets[i + 1];
+    for (let j = start; j < end - 1; j++) {
+      const ax = set.lines[j * 2];
+      const ay = set.lines[j * 2 + 1];
+      const bx = set.lines[(j + 1) * 2];
+      const by = set.lines[(j + 1) * 2 + 1];
+      fn([ax, ay], [bx, by]);
+    }
+  }
+}
+
+function segmentIntersectsPolylineSet(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  set: PolylineSet
+): boolean {
+  let hit = false;
+  forEachSegment(set, ([sx, sy], [ex, ey]) => {
+    if (!hit && segmentsIntersect(ax, ay, bx, by, sx, sy, ex, ey)) {
+      hit = true;
+    }
+  });
+  return hit;
+}
+
+function distanceToPolylineSet(px: number, py: number, set: PolylineSet): number {
+  let best = Infinity;
+  forEachSegment(set, ([sx, sy], [ex, ey]) => {
+    const d = pointSegmentDistance(px, py, sx, sy, ex, ey);
+    if (d < best) best = d;
+  });
+  return best;
+}
+
+function polygonAreaAndCentroid(points: Point[]): { area: number; cx: number; cy: number } {
+  let area = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x0, y0] = points[i];
+    const [x1, y1] = points[(i + 1) % points.length];
+    const cross = x0 * y1 - x1 * y0;
+    area += cross;
+    cx += (x0 + x1) * cross;
+    cy += (y0 + y1) * cross;
+  }
+  area *= 0.5;
+  if (Math.abs(area) < EPS) {
+    const meanX = points.reduce((s, p) => s + p[0], 0) / points.length;
+    const meanY = points.reduce((s, p) => s + p[1], 0) / points.length;
+    return { area: 0, cx: meanX, cy: meanY };
+  }
+  cx /= 6 * area;
+  cy /= 6 * area;
+  return { area: Math.abs(area), cx, cy };
+}
+
+function sampleTerrainAt(terrain: TerrainGrid, x: number, y: number) {
+  const cx = clampIndex(Math.floor(x / terrain.cellSizeM), terrain.W);
+  const cy = clampIndex(Math.floor(y / terrain.cellSizeM), terrain.H);
+  const idx = cy * terrain.W + cx;
+  return {
+    elev: terrain.elevationM[idx],
+    slope: terrain.slopeRad[idx],
+    fertility: terrain.fertility[idx],
+    soil: terrain.soilClass[idx],
+    moisture: terrain.moistureIx[idx],
+  };
+}
+
+function siteWeight(
+  x: number,
+  y: number,
+  coastX: number,
+  riverSet: PolylineSet,
+  coastline: PolylineSet
+): number {
+  const distCoast = Math.max(0, distanceToPolylineSet(x, y, coastline));
+  const distRiver = distanceToPolylineSet(x, y, riverSet);
+  const coastW = Math.exp(-distCoast / 2000);
+  const riverW = Math.exp(-distRiver / 1200);
+  return Math.min(1, 0.35 + 0.35 * coastW + 0.3 * riverW);
+}
+
+function poissonSampleSites(
+  terrain: TerrainGrid,
+  hydro: HydroNetwork,
+  cfg: Config,
+  rng: RNG
+): { sitesX: number[]; sitesY: number[] } {
+  const widthM = terrain.W * terrain.cellSizeM;
+  const heightM = terrain.H * terrain.cellSizeM;
+  const coastX = terrain.coastline.lines[0];
+  const targetCount = Math.max(
+    60,
+    Math.floor(terrain.W * terrain.H * (0.9 + 0.6 * cfg.worldgen.river_density))
+  );
+  const baseSpacing = 900;
+  const sitesX: number[] = [];
+  const sitesY: number[] = [];
+
+  const maxAttempts = targetCount * 80;
+  let attempts = 0;
+  while (sitesX.length < targetCount && attempts < maxAttempts) {
+    attempts++;
+    const x = rng.next() * coastX;
+    const y = rng.next() * heightM;
+    const w = siteWeight(x, y, coastX, hydro.river.lines, terrain.coastline);
+    if (rng.next() > w) continue;
+    const spacing = baseSpacing * (1 - 0.4 * w);
+    let tooClose = false;
+    for (let i = 0; i < sitesX.length; i++) {
+      if (Math.hypot(sitesX[i] - x, sitesY[i] - y) < spacing) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    sitesX.push(x);
+    sitesY.push(y);
+  }
+
+  if (sitesX.length < 3) {
+    const anchors: Point[] = [
+      [coastX * 0.25, heightM * 0.25],
+      [coastX * 0.25, heightM * 0.75],
+      [coastX * 0.75, heightM * 0.5],
+    ];
+    for (const [ax, ay] of anchors) {
+      sitesX.push(ax);
+      sitesY.push(ay);
+    }
+  }
+
+  return { sitesX, sitesY };
+}
 
 /**
  * Deterministic toy terrain generator used for early testing. The map is
@@ -501,9 +709,8 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
 }
 
 /**
- * Produce a trivial land mesh consisting of a single polygonal cell covering the
- * land area up to the coastline. The mesh supplies half‑edge data so later
- * modules can be exercised without requiring a full Voronoi implementation.
+ * Build a Voronoi land mesh from Poisson‑sampled sites biased toward rivers and
+ * the coast. Half‑edges are annotated with coastline and river intersections.
  */
 export function buildLandMesh(
   terrain: TerrainGrid,
@@ -515,47 +722,142 @@ export function buildLandMesh(
   const heightM = terrain.H * terrain.cellSizeM;
   const coastX = terrain.coastline.lines[0];
 
-  const vertsX = new Float32Array([0, 0, coastX, coastX]);
-  const vertsY = new Float32Array([0, heightM, heightM, 0]);
+  const { sitesX, sitesY } = poissonSampleSites(terrain, hydro, cfg, rng);
+  const delaunay = Delaunay.from(sitesX.map((x, i) => [x, sitesY[i]] as Point));
+  const voronoi = delaunay.voronoi([0, 0, coastX, heightM]);
 
-  const heMidX = new Float32Array(4);
-  const heMidY = new Float32Array(4);
-  const heLen = new Float32Array(4);
-  for (let i = 0; i < 4; i++) {
-    const j = (i + 1) % 4;
-    const sx = vertsX[i];
-    const sy = vertsY[i];
-    const ex = vertsX[j];
-    const ey = vertsY[j];
-    heMidX[i] = (sx + ex) / 2;
-    heMidY[i] = (sy + ey) / 2;
-    heLen[i] = Math.hypot(ex - sx, ey - sy);
+  const verts: Point[] = [];
+  const vertIndex = new Map<string, number>();
+  const heCell: number[] = [];
+  const heNext: number[] = [];
+  const heTwin: number[] = [];
+  const heMidX: number[] = [];
+  const heMidY: number[] = [];
+  const heLen: number[] = [];
+  const heIsCoast: number[] = [];
+  const heCrossesRiver: number[] = [];
+  const cellStart: number[] = [];
+  const cellCount: number[] = [];
+  const cellElev: number[] = [];
+  const cellSlope: number[] = [];
+  const cellFert: number[] = [];
+  const cellSoil: number[] = [];
+  const cellMoist: number[] = [];
+  const cellArea: number[] = [];
+  const cellCentroidX: number[] = [];
+  const cellCentroidY: number[] = [];
+  const cellDistRiver: number[] = [];
+  const cellDistCoast: number[] = [];
+
+  const startVerts: number[] = [];
+  const endVerts: number[] = [];
+  const twinLookup = new Map<string, number>();
+
+  for (let cellId = 0; cellId < sitesX.length; cellId++) {
+    const polygon = voronoi.cellPolygon(cellId) as Point[];
+    if (!polygon || polygon.length < 2) continue;
+    if (polygon.length > 1) {
+      const [fx, fy] = polygon[0];
+      const [lx, ly] = polygon[polygon.length - 1];
+      if (Math.abs(fx - lx) < EPS && Math.abs(fy - ly) < EPS) {
+        polygon.pop();
+      }
+    }
+    const startHe = heCell.length;
+    cellStart.push(startHe);
+
+    const { area, cx, cy } = polygonAreaAndCentroid(polygon);
+    cellArea.push(area);
+    cellCentroidX.push(cx);
+    cellCentroidY.push(cy);
+    const tSample = sampleTerrainAt(terrain, cx, cy);
+    cellElev.push(tSample.elev);
+    cellSlope.push(tSample.slope);
+    cellFert.push(tSample.fertility);
+    cellSoil.push(tSample.soil);
+    cellMoist.push(tSample.moisture);
+    cellDistRiver.push(distanceToPolylineSet(cx, cy, hydro.river.lines));
+    cellDistCoast.push(Math.abs(coastX - cx));
+
+    for (let i = 0; i < polygon.length; i++) {
+      const [ax, ay] = polygon[i] as Point;
+      const [bx, by] = polygon[(i + 1) % polygon.length] as Point;
+      const keyA = `${ax.toFixed(4)},${ay.toFixed(4)}`;
+      const keyB = `${bx.toFixed(4)},${by.toFixed(4)}`;
+      const getVert = (key: string, x: number, y: number) => {
+        const found = vertIndex.get(key);
+        if (found !== undefined) return found;
+        const id = verts.length;
+        verts.push([x, y]);
+        vertIndex.set(key, id);
+        return id;
+      };
+      const va = getVert(keyA, ax, ay);
+      const vb = getVert(keyB, bx, by);
+      const heId = heCell.length;
+      heCell.push(cellId);
+      startVerts.push(va);
+      endVerts.push(vb);
+      heLen.push(Math.hypot(bx - ax, by - ay));
+      heMidX.push((ax + bx) * 0.5);
+      heMidY.push((ay + by) * 0.5);
+      const coastFlag = Math.abs(ax - coastX) < EPS && Math.abs(bx - coastX) < EPS ? 1 : 0;
+      heIsCoast.push(coastFlag);
+      heCrossesRiver.push(segmentIntersectsPolylineSet(ax, ay, bx, by, hydro.river.lines) ? 1 : 0);
+      heNext.push(0); // placeholder
+      heTwin.push(heId); // default to self until matched
+
+      const twinKey = `${vb}->${va}`;
+      const existing = twinLookup.get(twinKey);
+      if (existing !== undefined) {
+        heTwin[heId] = existing;
+        heTwin[existing] = heId;
+      } else {
+        twinLookup.set(`${va}->${vb}`, heId);
+      }
+    }
+
+    const count = heCell.length - startHe;
+    cellCount.push(count);
+    for (let i = 0; i < count; i++) {
+      const heId = startHe + i;
+      heNext[heId] = startHe + ((i + 1) % count);
+    }
+  }
+
+  const vertsX = new Float32Array(verts.length);
+  const vertsY = new Float32Array(verts.length);
+  for (let i = 0; i < verts.length; i++) {
+    vertsX[i] = verts[i][0];
+    vertsY[i] = verts[i][1];
   }
 
   return {
-    sitesX: new Float32Array([widthM / 2]),
-    sitesY: new Float32Array([heightM / 2]),
-    cellStart: new Uint32Array([0]),
-    cellCount: new Uint32Array([4]),
+    sitesX: Float32Array.from(sitesX),
+    sitesY: Float32Array.from(sitesY),
+    cellStart: Uint32Array.from(cellStart),
+    cellCount: Uint32Array.from(cellCount),
     vertsX,
     vertsY,
-    heTwin: new Uint32Array([0, 0, 0, 0]),
-    heNext: new Uint32Array([1, 2, 3, 0]),
-    heCell: new Uint32Array([0, 0, 0, 0]),
-    heMidX,
-    heMidY,
-    heLen,
-    heIsCoast: new Uint8Array([0, 0, 1, 0]),
-    heCrossesRiver: new Uint8Array(4),
-    elevMean: new Float32Array([0]),
-    slopeMean: new Float32Array([0]),
-    fertility: new Uint16Array([0]),
-    soilClass: new Uint8Array([0]),
-    moistureIx: new Uint8Array([0]),
-    distToRiverM: new Float32Array([0]),
-    distToCoastM: new Float32Array([coastX - widthM / 2]),
-    areaM2: new Float32Array([coastX * heightM]),
-    centroidX: new Float32Array([widthM / 2]),
-    centroidY: new Float32Array([heightM / 2]),
+    heTwin: Uint32Array.from(heTwin),
+    heNext: Uint32Array.from(heNext),
+    heCell: Uint32Array.from(heCell),
+    heMidX: Float32Array.from(heMidX),
+    heMidY: Float32Array.from(heMidY),
+    heLen: Float32Array.from(heLen),
+    heVertA: Uint32Array.from(startVerts),
+    heVertB: Uint32Array.from(endVerts),
+    heIsCoast: Uint8Array.from(heIsCoast),
+    heCrossesRiver: Uint8Array.from(heCrossesRiver),
+    elevMean: Float32Array.from(cellElev),
+    slopeMean: Float32Array.from(cellSlope),
+    fertility: Uint16Array.from(cellFert),
+    soilClass: Uint8Array.from(cellSoil),
+    moistureIx: Uint8Array.from(cellMoist),
+    distToRiverM: Float32Array.from(cellDistRiver),
+    distToCoastM: Float32Array.from(cellDistCoast),
+    areaM2: Float32Array.from(cellArea),
+    centroidX: Float32Array.from(cellCentroidX),
+    centroidY: Float32Array.from(cellCentroidY),
   };
 }
