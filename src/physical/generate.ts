@@ -1,4 +1,5 @@
 import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh, PolylineSet } from '../types';
+import { createNoise2D } from './noise';
 
 /**
  * Deterministic toy terrain generator used for early testing. The map is
@@ -19,14 +20,42 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
   const soilClass = new Uint8Array(count);
   const moistureIx = new Uint8Array(count);
 
+  const noise2D = createNoise2D(rng);
+  const angleRad = (cfg.worldgen.ridge_orientation_deg * Math.PI) / 180;
+  const cosA = Math.cos(angleRad);
+  const sinA = Math.sin(angleRad);
+  const freq = 0.1; // cycles per km
+
+  // First pass: generate elevation with oriented noise ridges
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const idx = y * W + x;
       const nx = x / W;
-      // Simple ridge that declines toward the coast (east)
-      elevationM[idx] = (1 - nx) * 100 * cfg.worldgen.relief_strength;
-      slopeRad[idx] = 0;
-      fertility[idx] = Math.floor(rng.next() * 255);
+      const rx = x * cosA - y * sinA;
+      const ry = x * sinA + y * cosA;
+      const n = noise2D(rx * freq, ry * freq);
+      const base = (1 - nx) * 100;
+      elevationM[idx] = (base + n * 50) * cfg.worldgen.relief_strength;
+    }
+  }
+
+  // Second pass: derive slope and fertility from elevation
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const left = elevationM[y * W + Math.max(0, x - 1)];
+      const right = elevationM[y * W + Math.min(W - 1, x + 1)];
+      const down = elevationM[Math.max(0, y - 1) * W + x];
+      const up = elevationM[Math.min(H - 1, y + 1) * W + x];
+      const dzdx = (right - left) / (2 * cellSizeM);
+      const dzdy = (up - down) / (2 * cellSizeM);
+      const grad = Math.hypot(dzdx, dzdy);
+      const slope = Math.atan(grad);
+      slopeRad[idx] = slope;
+      fertility[idx] = Math.max(
+        0,
+        Math.min(255, Math.round((1 - slope / (Math.PI / 2)) * 255))
+      );
       soilClass[idx] = 0;
       moistureIx[idx] = Math.floor(rng.next() * 255);
     }
