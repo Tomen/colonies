@@ -26,8 +26,7 @@ Interfaces for these modules reside in [`src/types.ts`](../src/types.ts).
 
 ## Physical Layer
 World generation builds three immutable structures in sequence:
-1. `generateTerrain` creates a `TerrainGrid` raster from noise, fills depressions,
-   derives slope and fertility and traces the coastline with near‑shore depth samples.
+1. `generateTerrain` creates a `TerrainGrid` raster from simplex noise seeded via the game RNG. Relief strength and ridge orientation come from `cfg.worldgen`, then slope and fertility are derived before tracing the coastline with near‑shore depth samples.
 2. `buildHydro` runs flow direction and accumulation over the terrain to extract rivers,
    simplify polylines and construct a directed `RiverGraph` with width, order and fall‑line markers.
 3. `buildLandMesh` Poisson‑samples land sites (denser near water), forms a Delaunay triangulation
@@ -37,4 +36,4 @@ World generation builds three immutable structures in sequence:
 These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
-The prototype world generator produces a 1 km grid with a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.
+The prototype world generator produces a 1 km grid using seeded simplex noise with adjustable ridge orientation. It derives per‑cell slope and fertility, then adds a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.

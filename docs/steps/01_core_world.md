@@ -5,6 +5,7 @@ Implement the foundational world generation and hydrology systems.
 ## Tasks
 - [x] Implement seeded RNG and JSON configuration loader.
 - [x] Generate 10×10 km height map using noise with ridge orientation controls.
+- [x] Derive slope and fertility from the height map.
 - [x] Run hydrology model to ensure rivers flow to ocean and avoid sinks.
 - Score coastline for harbor suitability and place a single initial port.
 - Output raster grids: height, flow accumulation, moisture.
