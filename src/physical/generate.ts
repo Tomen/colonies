@@ -2,6 +2,7 @@ import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh, PolylineSet } from '.
 
 const dx = [1, 1, 0, -1, -1, -1, 0, 1];
 const dy = [0, -1, -1, -1, 0, 1, 1, 1];
+const neighborOffsets = (W: number) => dx.map((_, i) => dx[i] + dy[i] * W);
 
 function computeFlowDir(elev: Float32Array, W: number, H: number, cell: number): Int8Array {
   const count = W * H;
@@ -37,8 +38,11 @@ function computeFlowAccum(flowDir: Int8Array, elev: Float32Array, W: number, H: 
   const acc = new Float32Array(count);
   acc.fill(1);
   const indices = Array.from({ length: count }, (_, i) => i);
-  indices.sort((a, b) => elev[b] - elev[a]);
-  const offsets = dx.map((_, i) => dx[i] + dy[i] * W);
+  indices.sort((a, b) => {
+    const dz = elev[b] - elev[a];
+    return dz !== 0 ? dz : a - b;
+  });
+  const offsets = neighborOffsets(W);
   for (const idx of indices) {
     const dir = flowDir[idx];
     if (dir === -1) continue;
@@ -154,7 +158,7 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
   const fordability: number[] = [];
   const linePts: number[] = [];
   const lineOffsets: number[] = [];
-  const offsets = dx.map((_, i) => dx[i] + dy[i] * W);
+  const offsets = neighborOffsets(W);
 
   for (let idx = 0; idx < count; idx++) {
     if (!isRiver[idx]) continue;
