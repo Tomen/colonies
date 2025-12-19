@@ -86,6 +86,7 @@ export interface Config {
     spawn_thresholds: { [k: string]: number };
   };
   render: { resolution_px: [number, number]; style: string };
+  debug?: { worldgen: boolean };
 }
 
 export interface Sim {

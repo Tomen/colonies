@@ -121,5 +121,13 @@ export const configSchema: JSONSchemaType<Config> = {
         style: { type: 'string' },
       },
     },
+    debug: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['worldgen'],
+      properties: {
+        worldgen: { type: 'boolean' },
+      },
+    },
   },
 };

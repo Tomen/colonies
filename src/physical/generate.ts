@@ -1,4 +1,6 @@
 import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh, PolylineSet } from '../types';
+import fs from 'node:fs';
+import path from 'node:path';
 
 /**
  * Deterministic toy terrain generator used for early testing. The map is
@@ -40,7 +42,7 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
   };
   const nearshoreDepthM = new Float32Array([10, 10]);
 
-  return {
+  const terrain: TerrainGrid = {
     W,
     H,
     cellSizeM,
@@ -52,6 +54,15 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
     coastline: coastLine,
     nearshoreDepthM,
   };
+
+  if (cfg.debug?.worldgen) {
+    const outDir = path.join(process.cwd(), 'debug');
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'elevation.json'), JSON.stringify(Array.from(elevationM)));
+    fs.writeFileSync(path.join(outDir, 'moisture.json'), JSON.stringify(Array.from(moistureIx)));
+  }
+
+  return terrain;
 }
 
 /**
@@ -91,6 +102,12 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
   };
 
   const river = { nodes, edges, lines: riverLine, mouthNodeIds: new Uint32Array([2]) };
+
+  if (cfg.debug?.worldgen) {
+    const outDir = path.join(process.cwd(), 'debug');
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'flow.json'), JSON.stringify(Array.from(nodes.flow)));
+  }
 
   const fallLine = {
     nodeIds: new Uint32Array([1]),

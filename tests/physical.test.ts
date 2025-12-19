@@ -2,6 +2,8 @@ import { expect, test } from 'vitest';
 import { generateTerrain, buildHydro, buildLandMesh } from '../src/physical/generate';
 import { defaultConfig } from '../src/config';
 import { createRNG } from '../src/core/rng';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const rng = () => createRNG(defaultConfig.seed);
 
@@ -26,4 +28,16 @@ test('buildLandMesh returns single coastal cell', () => {
   const mesh = buildLandMesh(terrain, hydro, defaultConfig, rng());
   expect(mesh.cellCount.length).toBe(1);
   expect(Array.from(mesh.heIsCoast)).toContain(1);
+});
+
+test('debug flag writes terrain and hydro rasters', () => {
+  const cfg = { ...defaultConfig, debug: { worldgen: true } };
+  const outDir = path.join(process.cwd(), 'debug');
+  fs.rmSync(outDir, { recursive: true, force: true });
+  const terrain = generateTerrain(cfg, rng());
+  buildHydro(terrain, cfg);
+  expect(fs.existsSync(path.join(outDir, 'elevation.json'))).toBe(true);
+  expect(fs.existsSync(path.join(outDir, 'moisture.json'))).toBe(true);
+  expect(fs.existsSync(path.join(outDir, 'flow.json'))).toBe(true);
+  fs.rmSync(outDir, { recursive: true, force: true });
 });

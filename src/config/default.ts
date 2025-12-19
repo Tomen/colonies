@@ -35,4 +35,5 @@ export const defaultConfig: Config = {
     },
   },
   render: { resolution_px: [1600, 1200], style: 'classical' },
+  debug: { worldgen: false },
 };

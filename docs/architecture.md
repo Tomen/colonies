@@ -36,5 +36,8 @@ World generation builds three immutable structures in sequence:
 
 These datasets are read‑only foundations for higher layers.
 
+When `cfg.debug.worldgen` is true, `generateTerrain` and `buildHydro` export raw `elevation`,
+`moisture` and `flow` arrays to JSON files in a `debug/` directory for inspection.
+
 ## Current Implementation Details
 The prototype world generator produces a 1 km grid with a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.
