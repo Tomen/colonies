@@ -37,4 +37,4 @@ World generation builds three immutable structures in sequence:
 These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
-The prototype world generator produces a 1 km grid with a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.
+The prototype generator now derives D8 flow directions and accumulation on the 1 km terrain grid. Rivers are extracted according to configuration, routed to the coast and annotated with width and Strahler order while marking fall‑line nodes. A single‑cell land mesh remains sufficient for downstream tests.

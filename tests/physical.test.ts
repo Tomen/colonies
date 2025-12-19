@@ -12,12 +12,29 @@ test('generateTerrain produces grid with coastline', () => {
   expect(terrain.coastline.lines[0]).toBeCloseTo(expectedCoastX);
 });
 
-test('buildHydro creates river reaching the coast', () => {
+test('buildHydro creates rivers reaching the coast', () => {
   const terrain = generateTerrain(defaultConfig, rng());
   const hydro = buildHydro(terrain, defaultConfig);
-  const mouthIndex = hydro.river.mouthNodeIds[0];
-  const mouthX = hydro.river.nodes.x[mouthIndex];
-  expect(mouthX).toBeCloseTo(terrain.coastline.lines[0]);
+  const coastX = terrain.coastline.lines[0];
+  const lines = hydro.river.lines.lines;
+  for (const id of hydro.river.mouthNodeIds) {
+    const x = hydro.river.nodes.x[id];
+    expect(x).toBeCloseTo(coastX);
+    for (let e = 0; e < hydro.river.edges.dst.length; e++) {
+      if (hydro.river.edges.dst[e] === id) {
+        const end = hydro.river.edges.lineEnd[e];
+        expect(lines[2 * end]).toBeCloseTo(coastX);
+      }
+    }
+  }
+});
+
+test('river flow is conserved to the coast', () => {
+  const terrain = generateTerrain(defaultConfig, rng());
+  const hydro = buildHydro(terrain, defaultConfig);
+  let total = 0;
+  for (const id of hydro.river.mouthNodeIds) total += hydro.river.nodes.flow[id];
+  expect(total).toBeCloseTo(terrain.W * terrain.H);
 });
 
 test('buildLandMesh returns single coastal cell', () => {

@@ -4,6 +4,7 @@ export interface TerrainGrid {
   W: number; H: number; cellSizeM: number;
   elevationM: Float32Array; slopeRad: Float32Array;
   fertility: Uint8Array; soilClass: Uint8Array; moistureIx: Uint8Array;
+  flowDir: Int8Array; flowAccum: Float32Array;
   coastline: PolylineSet;
   nearshoreDepthM: Float32Array;
 }

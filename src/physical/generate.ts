@@ -1,5 +1,53 @@
 import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh, PolylineSet } from '../types';
 
+const dx = [1, 1, 0, -1, -1, -1, 0, 1];
+const dy = [0, -1, -1, -1, 0, 1, 1, 1];
+
+function computeFlowDir(elev: Float32Array, W: number, H: number, cell: number): Int8Array {
+  const count = W * H;
+  const out = new Int8Array(count);
+  const diag = Math.sqrt(2) * cell;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      let best = -1;
+      let bestSlope = 0;
+      for (let d = 0; d < 8; d++) {
+        const nx = x + dx[d];
+        const ny = y + dy[d];
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const nIdx = ny * W + nx;
+        const dz = elev[idx] - elev[nIdx];
+        if (dz <= 0) continue;
+        const dist = d % 2 === 0 ? cell : diag;
+        const slope = dz / dist;
+        if (slope > bestSlope) {
+          bestSlope = slope;
+          best = d;
+        }
+      }
+      out[idx] = best === -1 ? -1 : best;
+    }
+  }
+  return out;
+}
+
+function computeFlowAccum(flowDir: Int8Array, elev: Float32Array, W: number, H: number): Float32Array {
+  const count = W * H;
+  const acc = new Float32Array(count);
+  acc.fill(1);
+  const indices = Array.from({ length: count }, (_, i) => i);
+  indices.sort((a, b) => elev[b] - elev[a]);
+  const offsets = [1, W + 1, W, W - 1, -1, -W - 1, -W, -W + 1];
+  for (const idx of indices) {
+    const dir = flowDir[idx];
+    if (dir === -1) continue;
+    const nIdx = idx + offsets[dir];
+    acc[nIdx] += acc[idx];
+  }
+  return acc;
+}
+
 /**
  * Deterministic toy terrain generator used for early testing. The map is
  * represented on a coarse 1km grid. Elevation declines toward the coast so that
@@ -18,6 +66,8 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
   const fertility = new Uint8Array(count);
   const soilClass = new Uint8Array(count);
   const moistureIx = new Uint8Array(count);
+  const flowDir = new Int8Array(count);
+  const flowAccum = new Float32Array(count);
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -31,6 +81,12 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
       moistureIx[idx] = Math.floor(rng.next() * 255);
     }
   }
+
+  // Compute flow direction and accumulation over the grid
+  const dir = computeFlowDir(elevationM, W, H, cellSizeM);
+  const acc = computeFlowAccum(dir, elevationM, W, H);
+  flowDir.set(dir);
+  flowAccum.set(acc);
 
   // Coastline is a vertical line offset from the eastern edge by ocean_margin_m
   const coastX = sizeXKm * 1000 - cfg.map.ocean_margin_m;
@@ -49,6 +105,8 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
     fertility,
     soilClass,
     moistureIx,
+    flowDir,
+    flowAccum,
     coastline: coastLine,
     nearshoreDepthM,
   };
@@ -60,48 +118,143 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
  * systems while keeping the implementation deterministic and lightweight.
  */
 export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
-  const widthM = terrain.W * terrain.cellSizeM;
-  const heightM = terrain.H * terrain.cellSizeM;
+  const { W, H, cellSizeM, elevationM, flowDir, flowAccum } = terrain;
   const coastX = terrain.coastline.lines[0];
-  const midY = heightM / 2;
+  const count = W * H;
+  let maxAcc = 0;
+  for (let i = 0; i < count; i++) maxAcc = Math.max(maxAcc, flowAccum[i]);
+  const thresh = (1 - cfg.worldgen.river_density) * maxAcc;
+  const isRiver = new Uint8Array(count);
+  for (let i = 0; i < count; i++) if (flowAccum[i] >= thresh) isRiver[i] = 1;
 
-  // Nodes along the river
-  const nodes = {
-    x: new Float32Array([0, coastX / 2, coastX]),
-    y: new Float32Array([midY, midY, midY]),
-    flow: new Float32Array([1, 1, 1]),
+  const nodeId = new Int32Array(count).fill(-1);
+  const nodesX: number[] = [];
+  const nodesY: number[] = [];
+  const nodesFlow: number[] = [];
+  for (let idx = 0; idx < count; idx++) {
+    if (!isRiver[idx]) continue;
+    const x = idx % W;
+    const y = Math.floor(idx / W);
+    nodesX.push(x * cellSizeM + cellSizeM / 2);
+    nodesY.push(y * cellSizeM + cellSizeM / 2);
+    nodesFlow.push(flowAccum[idx]);
+    nodeId[idx] = nodesX.length - 1;
+  }
+
+  const mouthNodeIds: number[] = [];
+  const edgeSrc: number[] = [];
+  const edgeDst: number[] = [];
+  const lineStart: number[] = [];
+  const lineEnd: number[] = [];
+  const lengthM: number[] = [];
+  const widthM: number[] = [];
+  const slope: number[] = [];
+  const order: number[] = [];
+  const fordability: number[] = [];
+  const linePts: number[] = [];
+  const lineOffsets: number[] = [];
+  const offsets = [1, W + 1, W, W - 1, -1, -W - 1, -W, -W + 1];
+
+  for (let idx = 0; idx < count; idx++) {
+    if (!isRiver[idx]) continue;
+    const src = nodeId[idx];
+    const dir = flowDir[idx];
+    let dst = -1;
+    let nIdx = -1;
+    if (dir !== -1) nIdx = idx + offsets[dir];
+    if (dir === -1 || nIdx < 0 || nIdx >= count || !isRiver[nIdx]) {
+      const y = Math.floor(idx / W);
+      const mouthId = nodesX.length;
+      nodesX.push(coastX);
+      nodesY.push(y * cellSizeM + cellSizeM / 2);
+      nodesFlow.push(flowAccum[idx]);
+      mouthNodeIds.push(mouthId);
+      dst = mouthId;
+    } else {
+      dst = nodeId[nIdx];
+    }
+
+    const sx = nodesX[src];
+    const sy = nodesY[src];
+    const ex = nodesX[dst];
+    const ey = nodesY[dst];
+    const start = linePts.length / 2;
+    lineOffsets.push(start);
+    linePts.push(sx, sy, ex, ey);
+    lineStart.push(start);
+    lineEnd.push(start + 1);
+    const len = Math.hypot(ex - sx, ey - sy);
+    lengthM.push(len);
+    widthM.push(Math.max(1, Math.sqrt(nodesFlow[src])));
+    const elevDst = nIdx >= 0 && nIdx < count ? elevationM[nIdx] : cfg.map.sea_level_m;
+    slope.push((elevationM[idx] - elevDst) / len);
+    order.push(1);
+    fordability.push(1);
+    edgeSrc.push(src);
+    edgeDst.push(dst);
+  }
+  lineOffsets.push(linePts.length / 2);
+
+  // Compute Strahler order
+  const nodeOrder = new Uint8Array(nodesX.length);
+  const incoming: number[][] = Array.from({ length: nodesX.length }, () => []);
+  for (let i = 0; i < edgeSrc.length; i++) incoming[edgeDst[i]].push(i);
+  const nIdxs = Array.from({ length: nodesX.length }, (_, i) => i);
+  nIdxs.sort((a, b) => nodesFlow[a] - nodesFlow[b]);
+  for (const n of nIdxs) {
+    const inc = incoming[n];
+    if (inc.length === 0) {
+      nodeOrder[n] = 1;
+    } else {
+      let max = 0;
+      let countMax = 0;
+      for (const e of inc) {
+        const o = nodeOrder[edgeSrc[e]];
+        if (o > max) {
+          max = o;
+          countMax = 1;
+        } else if (o === max) {
+          countMax++;
+        }
+      }
+      nodeOrder[n] = countMax > 1 ? (max + 1) : max;
+    }
+  }
+  for (let i = 0; i < edgeSrc.length; i++) order[i] = nodeOrder[edgeDst[i]];
+
+  const river = {
+    nodes: {
+      x: Float32Array.from(nodesX),
+      y: Float32Array.from(nodesY),
+      flow: Float32Array.from(nodesFlow),
+    },
+    edges: {
+      src: Uint32Array.from(edgeSrc),
+      dst: Uint32Array.from(edgeDst),
+      lineStart: Uint32Array.from(lineStart),
+      lineEnd: Uint32Array.from(lineEnd),
+      lengthM: Float32Array.from(lengthM),
+      widthM: Float32Array.from(widthM),
+      slope: Float32Array.from(slope),
+      order: Uint8Array.from(order),
+      fordability: Float32Array.from(fordability),
+    },
+    lines: { lines: Float32Array.from(linePts), offsets: Uint32Array.from(lineOffsets) },
+    mouthNodeIds: Uint32Array.from(mouthNodeIds),
   };
 
-  // Single polyline representing the river course
-  const riverLine: PolylineSet = {
-    lines: new Float32Array([0, midY, coastX / 2, midY, coastX, midY]),
-    offsets: new Uint32Array([0, 3]),
-  };
+  const fallIds: number[] = [];
+  const fallXY: number[] = [];
+  for (let i = 0; i < nodesX.length; i++) {
+    const x = nodesX[i];
+    if (x >= coastX / 2 - cellSizeM / 2 && x < coastX / 2 + cellSizeM / 2) {
+      fallIds.push(i);
+      fallXY.push(nodesX[i], nodesY[i]);
+    }
+  }
+  const fallLine = { nodeIds: Uint32Array.from(fallIds), xy: Float32Array.from(fallXY) };
 
-  const edges = {
-    src: new Uint32Array([0, 1]),
-    dst: new Uint32Array([1, 2]),
-    lineStart: new Uint32Array([0, 1]),
-    lineEnd: new Uint32Array([1, 2]),
-    lengthM: new Float32Array([coastX / 2, coastX / 2]),
-    widthM: new Float32Array([10, 10]),
-    slope: new Float32Array([0, 0]),
-    order: new Uint8Array([1, 1]),
-    fordability: new Float32Array([1, 1]),
-  };
-
-  const river = { nodes, edges, lines: riverLine, mouthNodeIds: new Uint32Array([2]) };
-
-  const fallLine = {
-    nodeIds: new Uint32Array([1]),
-    xy: new Float32Array([coastX / 2, midY]),
-  };
-
-  return {
-    river,
-    coast: terrain.coastline,
-    fallLine,
-  };
+  return { river, coast: terrain.coastline, fallLine };
 }
 
 /**
