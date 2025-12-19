@@ -2,8 +2,63 @@ import { expect, test } from 'vitest';
 import { generateTerrain, buildHydro, buildLandMesh } from '../src/physical/generate';
 import { defaultConfig } from '../src/config';
 import { createRNG } from '../src/core/rng';
+import { PolylineSet } from '../src/types';
 
 const rng = () => createRNG(defaultConfig.seed);
+
+const EPS = 1e-6;
+
+const orientation = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number) =>
+  (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+
+function segmentsIntersect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number
+): boolean {
+  const o1 = orientation(ax, ay, bx, by, cx, cy);
+  const o2 = orientation(ax, ay, bx, by, dx, dy);
+  const o3 = orientation(cx, cy, dx, dy, ax, ay);
+  const o4 = orientation(cx, cy, dx, dy, bx, by);
+  const denom = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+  if (Math.abs(o1) < EPS && Math.abs(o2) < EPS && Math.abs(denom) < EPS) {
+    const inRange = (p: number, q: number, r: number) =>
+      Math.min(p, q) - EPS <= r && r <= Math.max(p, q) + EPS;
+    return (
+      (inRange(ax, bx, cx) && inRange(ay, by, cy)) ||
+      (inRange(ax, bx, dx) && inRange(ay, by, dy))
+    );
+  }
+  const straddle1 = o1 * o2 <= 0;
+  const straddle2 = o3 * o4 <= 0;
+  return straddle1 && straddle2;
+}
+
+function segmentIntersectsPolylineSet(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  set: PolylineSet
+): boolean {
+  for (let l = 0; l < set.offsets.length - 1; l++) {
+    const start = set.offsets[l];
+    const end = set.offsets[l + 1];
+    for (let i = start; i < end - 1; i++) {
+      const sx = set.lines[i * 2];
+      const sy = set.lines[i * 2 + 1];
+      const ex = set.lines[(i + 1) * 2];
+      const ey = set.lines[(i + 1) * 2 + 1];
+      if (segmentsIntersect(ax, ay, bx, by, sx, sy, ex, ey)) return true;
+    }
+  }
+  return false;
+}
 
 test('generateTerrain produces grid with coastline', () => {
   const terrain = generateTerrain(defaultConfig, rng());
@@ -34,11 +89,14 @@ test('buildHydro creates river reaching the coast', () => {
   }
 });
 
-test('buildLandMesh returns single coastal cell', () => {
+test('buildLandMesh produces coastal Voronoi mesh', () => {
   const terrain = generateTerrain(defaultConfig, rng());
   const hydro = buildHydro(terrain, defaultConfig);
   const mesh = buildLandMesh(terrain, hydro, defaultConfig, rng());
-  expect(mesh.cellCount.length).toBe(1);
+  // Debug guard to ease failure triage if sampling changes
+  expect(mesh.sitesX.length).toBeGreaterThan(0);
+  expect(mesh.cellCount.length).toBe(mesh.sitesX.length);
+  expect(mesh.cellCount.length).toBeGreaterThan(1);
   expect(Array.from(mesh.heIsCoast)).toContain(1);
 });
 
@@ -66,5 +124,46 @@ test('river edges terminate at coast nodes', () => {
     if (mouthSet.has(edges.dst[i])) {
       expect(nodes.x[edges.dst[i]]).toBeCloseTo(coastX, 3);
     }
+  }
+});
+
+test('land mesh half-edges are consistent', () => {
+  const terrain = generateTerrain(defaultConfig, rng());
+  const hydro = buildHydro(terrain, defaultConfig);
+  const land = buildLandMesh(terrain, hydro, defaultConfig, rng());
+  const heCount = land.heCell.length;
+  expect(heCount).toBeGreaterThan(0);
+  for (let i = 0; i < heCount; i++) {
+    const twin = land.heTwin[i];
+    expect(land.heTwin[twin]).toBe(i);
+    expect(land.heNext[i]).toBeLessThan(heCount);
+  }
+  for (let c = 0; c < land.cellCount.length; c++) {
+    const start = land.cellStart[c];
+    const count = land.cellCount[c];
+    let steps = 0;
+    let he = start;
+    do {
+      expect(land.heCell[he]).toBe(c);
+      he = land.heNext[he];
+      steps++;
+    } while (he !== start && steps < heCount + 2);
+    expect(steps).toBe(count);
+  }
+});
+
+test('heCrossesRiver flags match geometry intersections', () => {
+  const terrain = generateTerrain(defaultConfig, rng());
+  const hydro = buildHydro(terrain, defaultConfig);
+  const land = buildLandMesh(terrain, hydro, defaultConfig, rng());
+  for (let i = 0; i < land.heCell.length; i++) {
+    const va = land.heVertA[i];
+    const vb = land.heVertB[i];
+    const ax = land.vertsX[va];
+    const ay = land.vertsY[va];
+    const bx = land.vertsX[vb];
+    const by = land.vertsY[vb];
+    const intersects = segmentIntersectsPolylineSet(ax, ay, bx, by, hydro.river.lines);
+    expect(land.heCrossesRiver[i]).toBe(intersects ? 1 : 0);
   }
 });
