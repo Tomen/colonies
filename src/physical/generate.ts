@@ -84,52 +84,419 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
 }
 
 /**
- * Construct a minimal hydrology network: a single river running from west to
- * east terminating at the coastline. This is sufficient to exercise downstream
- * systems while keeping the implementation deterministic and lightweight.
+ * Hydrology model: compute D∞ flow directions over the TerrainGrid, accumulate
+ * discharge, extract channel cells based on configured river density and trace
+ * polylines to the coastline. The resulting RiverGraph includes Strahler order,
+ * width estimates, mouth nodes on the coast and fall‑line markers on steep
+ * downstream segments.
  */
 export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
-  const widthM = terrain.W * terrain.cellSizeM;
-  const heightM = terrain.H * terrain.cellSizeM;
-  const coastX = terrain.coastline.lines[0];
-  const midY = heightM / 2;
+  const { W, H, cellSizeM, elevationM, coastline } = terrain;
+  const seaLevel = cfg.map.sea_level_m;
+  const coastX = coastline.lines[0];
+  const count = W * H;
+  const cellArea = cellSizeM * cellSizeM;
 
-  // Nodes along the river
-  const nodes = {
-    x: new Float32Array([0, coastX / 2, coastX]),
-    y: new Float32Array([midY, midY, midY]),
-    flow: new Float32Array([1, 1, 1]),
+  const routingElev = new Float32Array(count);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const eastTilt = (x / Math.max(1, W - 1)) * 0.01;
+      routingElev[idx] = elevationM[idx] - eastTilt;
+    }
+  }
+
+  const neighborDx = [1, 1, 0, -1, -1, -1, 0, 1];
+  const neighborDy = [0, -1, -1, -1, 0, 1, 1, 1];
+  const neighborDist = neighborDx.map((dx, i) =>
+    Math.hypot(dx, neighborDy[i]) * cellSizeM
+  );
+
+  const out1 = new Int32Array(count);
+  const out2 = new Int32Array(count);
+  const weight2 = new Float32Array(count);
+  out1.fill(-1);
+  out2.fill(-1);
+
+  const getRouting = (x: number, y: number) => routingElev[y * W + x];
+  const inside = (x: number, y: number) => x >= 0 && x < W && y >= 0 && y < H;
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const left = getRouting(Math.max(0, x - 1), y);
+      const right = getRouting(Math.min(W - 1, x + 1), y);
+      const down = getRouting(x, Math.max(0, y - 1));
+      const up = getRouting(x, Math.min(H - 1, y + 1));
+      const dzdx = (right - left) / (2 * cellSizeM);
+      const dzdy = (up - down) / (2 * cellSizeM);
+      const dirX = -dzdx;
+      const dirY = -dzdy;
+      const mag = Math.hypot(dirX, dirY);
+
+      const chooseSteepest = () => {
+        let best = -1;
+        let bestSlope = 0;
+        for (let d = 0; d < 8; d++) {
+          const nx = x + neighborDx[d];
+          const ny = y + neighborDy[d];
+          if (!inside(nx, ny)) {
+            if (neighborDx[d] === 1) {
+              const dist = Math.max(cellSizeM * 0.5, coastX - (x + 0.5) * cellSizeM);
+              const slope = (routingElev[idx] - seaLevel) / dist;
+              if (slope > bestSlope) {
+                bestSlope = slope;
+                best = -1;
+              }
+            }
+            continue;
+          }
+          const drop = routingElev[idx] - getRouting(nx, ny);
+          const slope = drop / neighborDist[d];
+          if (slope > bestSlope) {
+            bestSlope = slope;
+            best = ny * W + nx;
+          }
+        }
+        return best;
+      };
+
+      if (mag < 1e-5) {
+        out1[idx] = chooseSteepest();
+        continue;
+      }
+
+      const angle = (Math.atan2(dirY, dirX) + 2 * Math.PI) % (2 * Math.PI);
+      const scaled = angle / (Math.PI / 4);
+      const i0 = Math.floor(scaled) % 8;
+      const i1 = (i0 + 1) % 8;
+      const t = scaled - Math.floor(scaled);
+
+      const computeSlope = (dirIndex: number) => {
+        const nx = x + neighborDx[dirIndex];
+        const ny = y + neighborDy[dirIndex];
+        if (!inside(nx, ny)) {
+          if (neighborDx[dirIndex] === 1) {
+            const dist = Math.max(cellSizeM * 0.5, coastX - (x + 0.5) * cellSizeM);
+            return (routingElev[idx] - seaLevel) / dist;
+          }
+          return -Infinity;
+        }
+        const drop = routingElev[idx] - getRouting(nx, ny);
+        return drop / neighborDist[dirIndex];
+      };
+
+      const slope0 = computeSlope(i0);
+      const slope1 = computeSlope(i1);
+      if (slope0 <= 0 && slope1 <= 0) {
+        out1[idx] = chooseSteepest();
+        continue;
+      }
+
+      const total = Math.max(0, slope0) + Math.max(0, slope1);
+      const w1 = total > 0 ? Math.max(0, slope1) / total : 0;
+
+      const nx0 = x + neighborDx[i0];
+      const ny0 = y + neighborDy[i0];
+      const nx1 = x + neighborDx[i1];
+      const ny1 = y + neighborDy[i1];
+
+      out1[idx] = inside(nx0, ny0) ? ny0 * W + nx0 : -1;
+      out2[idx] = inside(nx1, ny1) ? ny1 * W + nx1 : -1;
+      weight2[idx] = w1;
+    }
+  }
+
+  const accumulation = new Float32Array(count).fill(cellArea);
+  const flowOut1 = new Float32Array(count);
+  const flowOut2 = new Float32Array(count);
+
+  const orderIdx = Array.from({ length: count }, (_, i) => i);
+  orderIdx.sort((a, b) => routingElev[b] - routingElev[a]);
+
+  const mouthMap = new Map<number, number>();
+  const mouthFlow: number[] = [];
+  const mouthY: number[] = [];
+
+  for (const idx of orderIdx) {
+    const flow = accumulation[idx];
+    const w2 = weight2[idx];
+    const d1 = out1[idx];
+    const d2 = out2[idx];
+    const share1 = w2 > 0 ? flow * (1 - w2) : flow * (d2 === -1 ? 1 : 1);
+    const share2 = w2 > 0 ? flow * w2 : 0;
+
+    const pushToMouth = (amount: number, srcIdx: number) => {
+      const cy = Math.floor(srcIdx / W);
+      const key = cy;
+      let mouthId = mouthMap.get(key);
+      if (mouthId === undefined) {
+        mouthId = mouthFlow.length;
+        mouthMap.set(key, mouthId);
+        mouthFlow.push(0);
+        mouthY.push((cy + 0.5) * cellSizeM);
+      }
+      mouthFlow[mouthId] += amount;
+    };
+
+    if (d1 >= 0) {
+      accumulation[d1] += share1;
+      flowOut1[idx] = share1;
+    } else if (share1 > 0) {
+      flowOut1[idx] = share1;
+      pushToMouth(share1, idx);
+    }
+
+    if (d2 >= 0 && share2 > 0) {
+      accumulation[d2] += share2;
+      flowOut2[idx] = share2;
+    } else if (d2 === -1 && share2 > 0) {
+      flowOut2[idx] = share2;
+      pushToMouth(share2, idx);
+    }
+  }
+
+  const sortedAcc = [...accumulation].sort((a, b) => a - b);
+  const desiredFraction = Math.min(0.25, Math.max(0.05, 0.12 * cfg.worldgen.river_density));
+  const qIndex = Math.floor((1 - desiredFraction) * (count - 1));
+  const accThreshold = Math.max(cellArea, sortedAcc[qIndex]);
+
+  const isChannel = new Uint8Array(count);
+  for (let i = 0; i < count; i++) {
+    const mouthBound = out1[i] === -1 || out2[i] === -1;
+    if (accumulation[i] >= accThreshold || mouthBound) {
+      isChannel[i] = 1;
+    }
+  }
+
+  const cellToNode = new Int32Array(count).fill(-1);
+  const nodeX: number[] = [];
+  const nodeY: number[] = [];
+  const nodeFlow: number[] = [];
+  const nodeIsMouth: number[] = [];
+  const nodeCellIdx: number[] = [];
+  const mouthAggregated: number[] = [];
+
+  for (let i = 0; i < count; i++) {
+    if (!isChannel[i]) continue;
+    const cx = i % W;
+    const cy = Math.floor(i / W);
+    cellToNode[i] = nodeX.length;
+    nodeX.push((cx + 0.5) * cellSizeM);
+    nodeY.push((cy + 0.5) * cellSizeM);
+    nodeFlow.push(accumulation[i]);
+    nodeIsMouth.push(0);
+    nodeCellIdx.push(i);
+    mouthAggregated.push(0);
+  }
+
+  for (const [, mouthIdx] of mouthMap.entries()) {
+    nodeX.push(coastX);
+    nodeY.push(mouthY[mouthIdx]);
+    nodeFlow.push(mouthFlow[mouthIdx]);
+    nodeIsMouth.push(1);
+    nodeCellIdx.push(-1);
+    mouthAggregated.push(1);
+  }
+
+  const lines: number[] = [];
+  const offsets: number[] = [0];
+  const edgeSrc: number[] = [];
+  const edgeDst: number[] = [];
+  const edgeLength: number[] = [];
+  const edgeWidth: number[] = [];
+  const edgeSlope: number[] = [];
+  const edgeFlow: number[] = [];
+  const edgeLineStart: number[] = [];
+  const edgeLineEnd: number[] = [];
+
+  const advanceBranch = (
+    startIdx: number,
+    startNode: number,
+    firstTarget: number,
+    startFlow: number
+  ) => {
+    if (startFlow <= 0) return;
+    let current = firstTarget;
+    let remaining = startFlow;
+    const pts: number[] = [nodeX[startNode], nodeY[startNode]];
+    let steps = 0;
+    while (steps < count + 2) {
+      if (current === -1) {
+        const destY = pts[pts.length - 1];
+        pts.push(coastX, destY);
+        const dstNode = nodeX.findIndex(
+          (x, idx) => nodeIsMouth[idx] === 1 && Math.abs(nodeY[idx] - destY) < 1e-3
+        );
+        const nodeId = dstNode === -1 ? nodeX.length : dstNode;
+        if (dstNode === -1) {
+          nodeX.push(coastX);
+          nodeY.push(destY);
+          nodeFlow.push(remaining);
+          nodeIsMouth.push(1);
+          nodeCellIdx.push(-1);
+          mouthAggregated.push(0);
+        } else {
+          if (!mouthAggregated[nodeId]) {
+            nodeFlow[nodeId] += remaining;
+          }
+        }
+        finalizeEdge(startNode, nodeId, pts, remaining, seaLevel);
+        return;
+      }
+
+      const nodeHit = cellToNode[current];
+      const cx = current % W;
+      const cy = Math.floor(current / W);
+      const centerX = (cx + 0.5) * cellSizeM;
+      const centerY = (cy + 0.5) * cellSizeM;
+      pts.push(centerX, centerY);
+      if (nodeHit >= 0 && nodeHit !== startNode) {
+        finalizeEdge(startNode, nodeHit, pts, remaining, elevationM[current]);
+        return;
+      }
+
+      const f1 = flowOut1[current];
+      const f2 = flowOut2[current];
+      if (f1 <= 0 && f2 <= 0) {
+        current = -1;
+        steps++;
+        continue;
+      }
+      if (f1 >= f2) {
+        remaining *= f1 > 0 ? f1 / accumulation[current] : 1;
+        current = out1[current];
+      } else {
+        remaining *= f2 / accumulation[current];
+        current = out2[current];
+      }
+      steps++;
+    }
   };
 
-  // Single polyline representing the river course
-  const riverLine: PolylineSet = {
-    lines: new Float32Array([0, midY, coastX / 2, midY, coastX, midY]),
-    offsets: new Uint32Array([0, 3]),
+  const finalizeEdge = (
+    srcNode: number,
+    dstNode: number,
+    pts: number[],
+    flow: number,
+    dstElev: number
+  ) => {
+    const startOffset = lines.length / 2;
+    for (let i = 0; i < pts.length; i++) lines.push(pts[i]);
+    offsets.push(lines.length / 2);
+    edgeLineStart.push(startOffset);
+    edgeLineEnd.push(offsets[offsets.length - 1] - 1);
+    edgeSrc.push(srcNode);
+    edgeDst.push(dstNode);
+    let len = 0;
+    for (let i = 0; i < pts.length - 2; i += 2) {
+      const dx = pts[i + 2] - pts[i];
+      const dy = pts[i + 3] - pts[i + 1];
+      len += Math.hypot(dx, dy);
+    }
+    edgeLength.push(len);
+    const baseWidth = Math.pow(flow / cellArea, 0.4) * 6;
+    edgeWidth.push(Math.max(3, baseWidth));
+    const srcElev = nodeCellIdx[srcNode] >= 0 ? elevationM[nodeCellIdx[srcNode]] : seaLevel;
+    const slope = len > 0 ? (srcElev - dstElev) / len : 0;
+    edgeSlope.push(Math.max(0, slope));
+    edgeFlow.push(flow);
   };
 
-  const edges = {
-    src: new Uint32Array([0, 1]),
-    dst: new Uint32Array([1, 2]),
-    lineStart: new Uint32Array([0, 1]),
-    lineEnd: new Uint32Array([1, 2]),
-    lengthM: new Float32Array([coastX / 2, coastX / 2]),
-    widthM: new Float32Array([10, 10]),
-    slope: new Float32Array([0, 0]),
-    order: new Uint8Array([1, 1]),
-    fordability: new Float32Array([1, 1]),
-  };
+  for (let i = 0; i < count; i++) {
+    if (!isChannel[i]) continue;
+    const nodeId = cellToNode[i];
+    const f1 = flowOut1[i];
+    const f2 = flowOut2[i];
+    if (f1 > 0) advanceBranch(i, nodeId, out1[i], f1);
+    if (f2 > 0) advanceBranch(i, nodeId, out2[i], f2);
+  }
 
-  const river = { nodes, edges, lines: riverLine, mouthNodeIds: new Uint32Array([2]) };
+  const nodeOrder = new Uint8Array(nodeX.length).fill(1);
+  const outgoingByNode: number[][] = Array.from({ length: nodeX.length }, () => []);
+  const incomingByNode: number[][] = Array.from({ length: nodeX.length }, () => []);
+  for (let e = 0; e < edgeSrc.length; e++) {
+    outgoingByNode[edgeSrc[e]].push(e);
+    incomingByNode[edgeDst[e]].push(e);
+  }
 
-  const fallLine = {
-    nodeIds: new Uint32Array([1]),
-    xy: new Float32Array([coastX / 2, midY]),
+  const nodePriority = nodeCellIdx.map((ci, idx) => (ci >= 0 ? routingElev[ci] : -Infinity));
+  const nodeOrderIdx = Array.from({ length: nodeX.length }, (_, i) => i).sort(
+    (a, b) => nodePriority[b] - nodePriority[a]
+  );
+
+  const edgeOrder = new Uint8Array(edgeSrc.length);
+  for (const n of nodeOrderIdx) {
+    const incoming = incomingByNode[n];
+    if (incoming.length > 0) {
+      let maxOrd = 1;
+      let maxCount = 0;
+      for (const e of incoming) {
+        const ord = edgeOrder[e];
+        if (ord > maxOrd) {
+          maxOrd = ord;
+          maxCount = 1;
+        } else if (ord === maxOrd) {
+          maxCount++;
+        }
+      }
+      nodeOrder[n] = maxCount > 1 ? (maxOrd + 1) as number : maxOrd;
+    }
+    for (const e of outgoingByNode[n]) {
+      edgeOrder[e] = nodeOrder[n];
+    }
+  }
+
+  const fordability = edgeWidth.map((w) => Math.max(0.05, Math.min(1, 18 / (w + 1))));
+
+  const fallLineNodeIds: number[] = [];
+  const fallLineXY: number[] = [];
+  for (let n = 0; n < nodeX.length; n++) {
+    const edges = outgoingByNode[n];
+    let maxSlope = 0;
+    for (const e of edges) {
+      if (edgeSlope[e] > maxSlope) maxSlope = edgeSlope[e];
+    }
+    if (maxSlope > 0.02 && nodeIsMouth[n] === 0) {
+      fallLineNodeIds.push(n);
+      fallLineXY.push(nodeX[n], nodeY[n]);
+    }
+  }
+
+  const river = {
+    nodes: {
+      x: Float32Array.from(nodeX),
+      y: Float32Array.from(nodeY),
+      flow: Float32Array.from(nodeFlow),
+    },
+    edges: {
+      src: Uint32Array.from(edgeSrc),
+      dst: Uint32Array.from(edgeDst),
+      lineStart: Uint32Array.from(edgeLineStart),
+      lineEnd: Uint32Array.from(edgeLineEnd),
+      lengthM: Float32Array.from(edgeLength),
+      widthM: Float32Array.from(edgeWidth),
+      slope: Float32Array.from(edgeSlope),
+      flow: Float32Array.from(edgeFlow),
+      order: Uint8Array.from(edgeOrder),
+      fordability: Float32Array.from(fordability),
+    },
+    lines: {
+      lines: Float32Array.from(lines),
+      offsets: Uint32Array.from(offsets),
+    },
+    mouthNodeIds: Uint32Array.from(
+      nodeIsMouth.flatMap((m, i) => (m ? [i] : []))
+    ),
   };
 
   return {
     river,
-    coast: terrain.coastline,
-    fallLine,
+    coast: coastline,
+    fallLine: {
+      nodeIds: Uint32Array.from(fallLineNodeIds),
+      xy: Float32Array.from(fallLineXY),
+    },
   };
 }
 
@@ -192,4 +559,3 @@ export function buildLandMesh(
     centroidY: new Float32Array([heightM / 2]),
   };
 }
-

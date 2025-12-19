@@ -26,9 +26,12 @@ test('generateTerrain deterministic for seed', () => {
 test('buildHydro creates river reaching the coast', () => {
   const terrain = generateTerrain(defaultConfig, rng());
   const hydro = buildHydro(terrain, defaultConfig);
-  const mouthIndex = hydro.river.mouthNodeIds[0];
-  const mouthX = hydro.river.nodes.x[mouthIndex];
-  expect(mouthX).toBeCloseTo(terrain.coastline.lines[0]);
+  const coastX = terrain.coastline.lines[0];
+  const mouths = Array.from(hydro.river.mouthNodeIds);
+  expect(mouths.length).toBeGreaterThan(0);
+  for (const mouth of mouths) {
+    expect(hydro.river.nodes.x[mouth]).toBeCloseTo(coastX, 3);
+  }
 });
 
 test('buildLandMesh returns single coastal cell', () => {
@@ -37,4 +40,31 @@ test('buildLandMesh returns single coastal cell', () => {
   const mesh = buildLandMesh(terrain, hydro, defaultConfig, rng());
   expect(mesh.cellCount.length).toBe(1);
   expect(Array.from(mesh.heIsCoast)).toContain(1);
+});
+
+test('river flow conserves mass to the coast', () => {
+  const terrain = generateTerrain(defaultConfig, rng());
+  const hydro = buildHydro(terrain, defaultConfig);
+  const cellArea = terrain.cellSizeM * terrain.cellSizeM;
+  const expected = cellArea * terrain.W * terrain.H;
+  const mouthFlow = Array.from(hydro.river.mouthNodeIds).reduce(
+    (sum, idx) => sum + hydro.river.nodes.flow[idx],
+    0
+  );
+  const relativeError = Math.abs(mouthFlow - expected) / expected;
+  expect(relativeError).toBeLessThan(1e-3);
+});
+
+test('river edges terminate at coast nodes', () => {
+  const terrain = generateTerrain(defaultConfig, rng());
+  const hydro = buildHydro(terrain, defaultConfig);
+  const { edges, nodes, mouthNodeIds } = hydro.river;
+  const mouthSet = new Set(Array.from(mouthNodeIds));
+  const coastX = terrain.coastline.lines[0];
+  expect(mouthSet.size).toBeGreaterThan(0);
+  for (let i = 0; i < edges.dst.length; i++) {
+    if (mouthSet.has(edges.dst[i])) {
+      expect(nodes.x[edges.dst[i]]).toBeCloseTo(coastX, 3);
+    }
+  }
 });

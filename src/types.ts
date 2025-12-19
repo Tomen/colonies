@@ -13,7 +13,7 @@ export interface RiverGraph {
   edges: {
     src: Uint32Array; dst: Uint32Array;
     lineStart: Uint32Array; lineEnd: Uint32Array;
-    lengthM: Float32Array; widthM: Float32Array; slope: Float32Array;
+    lengthM: Float32Array; widthM: Float32Array; slope: Float32Array; flow: Float32Array;
     order: Uint8Array; fordability: Float32Array;
   };
   lines: PolylineSet; mouthNodeIds: Uint32Array;
