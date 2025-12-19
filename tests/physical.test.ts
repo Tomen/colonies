@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { expect, test } from 'vitest';
 import { generateTerrain, buildHydro, buildLandMesh } from '../src/physical/generate';
 import { defaultConfig } from '../src/config';
@@ -165,5 +168,33 @@ test('heCrossesRiver flags match geometry intersections', () => {
     const by = land.vertsY[vb];
     const intersects = segmentIntersectsPolylineSet(ax, ay, bx, by, hydro.river.lines);
     expect(land.heCrossesRiver[i]).toBe(intersects ? 1 : 0);
+  }
+});
+
+test('debug export writes terrain and hydro grids', () => {
+  const debugDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colonies-debug-'));
+  const cfg = {
+    ...defaultConfig,
+    debug: { export_grids: true, output_dir: debugDir },
+  };
+  try {
+    const terrain = generateTerrain(cfg, rng());
+    buildHydro(terrain, cfg);
+    const elevPath = path.join(debugDir, 'terrain_elevation.json');
+    const moisturePath = path.join(debugDir, 'terrain_moisture.json');
+    const flowPath = path.join(debugDir, 'hydro_flow.json');
+    expect(fs.existsSync(elevPath)).toBe(true);
+    expect(fs.existsSync(moisturePath)).toBe(true);
+    expect(fs.existsSync(flowPath)).toBe(true);
+    const elevData = JSON.parse(fs.readFileSync(elevPath, 'utf8'));
+    const moistureData = JSON.parse(fs.readFileSync(moisturePath, 'utf8'));
+    const flowData = JSON.parse(fs.readFileSync(flowPath, 'utf8'));
+    expect(elevData.W).toBe(terrain.W);
+    expect(elevData.H).toBe(terrain.H);
+    expect(elevData.data.length).toBe(terrain.W * terrain.H);
+    expect(moistureData.data.length).toBe(terrain.W * terrain.H);
+    expect(flowData.data.length).toBe(terrain.W * terrain.H);
+  } finally {
+    fs.rmSync(debugDir, { recursive: true, force: true });
   }
 });

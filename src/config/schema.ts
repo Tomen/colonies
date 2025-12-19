@@ -32,6 +32,16 @@ export const configSchema: JSONSchemaType<Config> = {
         gif_every_ticks: { type: 'integer' },
       },
     },
+    debug: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['export_grids', 'output_dir'],
+      properties: {
+        export_grids: { type: 'boolean' },
+        output_dir: { type: 'string' },
+      },
+      nullable: true,
+    },
     worldgen: {
       type: 'object',
       additionalProperties: false,

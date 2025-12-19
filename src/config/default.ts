@@ -4,6 +4,7 @@ export const defaultConfig: Config = {
   seed: 133742,
   map: { size_km: [10, 10], ocean_margin_m: 400, sea_level_m: 0 },
   time: { start_year: 0, tick: 'quarter', gif_every_ticks: 2 },
+  debug: { export_grids: false, output_dir: './debug' },
   worldgen: {
     relief_strength: 0.6,
     ridge_orientation_deg: 290,

@@ -70,6 +70,7 @@ export interface Config {
   seed: number;
   map: { size_km: [number, number]; ocean_margin_m: number; sea_level_m: number; };
   time: { start_year: number; tick: string; gif_every_ticks: number; };
+  debug?: { export_grids: boolean; output_dir: string };
   worldgen: {
     relief_strength: number;
     ridge_orientation_deg: number;
