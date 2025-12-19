@@ -38,7 +38,7 @@ function computeFlowAccum(flowDir: Int8Array, elev: Float32Array, W: number, H: 
   acc.fill(1);
   const indices = Array.from({ length: count }, (_, i) => i);
   indices.sort((a, b) => elev[b] - elev[a]);
-  const offsets = [1, W + 1, W, W - 1, -1, -W - 1, -W, -W + 1];
+  const offsets = dx.map((_, i) => dx[i] + dy[i] * W);
   for (const idx of indices) {
     const dir = flowDir[idx];
     if (dir === -1) continue;
@@ -142,6 +142,7 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
   }
 
   const mouthNodeIds: number[] = [];
+  const mouthByRow = new Map<number, number>();
   const edgeSrc: number[] = [];
   const edgeDst: number[] = [];
   const lineStart: number[] = [];
@@ -153,25 +154,85 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
   const fordability: number[] = [];
   const linePts: number[] = [];
   const lineOffsets: number[] = [];
-  const offsets = [1, W + 1, W, W - 1, -1, -W - 1, -W, -W + 1];
+  const offsets = dx.map((_, i) => dx[i] + dy[i] * W);
 
   for (let idx = 0; idx < count; idx++) {
     if (!isRiver[idx]) continue;
     const src = nodeId[idx];
-    const dir = flowDir[idx];
+    const path: number[] = [nodesX[src], nodesY[src]];
+    let curIdx = idx;
     let dst = -1;
-    let nIdx = -1;
-    if (dir !== -1) nIdx = idx + offsets[dir];
-    if (dir === -1 || nIdx < 0 || nIdx >= count || !isRiver[nIdx]) {
-      const y = Math.floor(idx / W);
-      const mouthId = nodesX.length;
-      nodesX.push(coastX);
-      nodesY.push(y * cellSizeM + cellSizeM / 2);
-      nodesFlow.push(flowAccum[idx]);
-      mouthNodeIds.push(mouthId);
+    let endIdx = -1;
+    let guard = 0;
+    while (dst === -1 && guard < count) {
+      guard++;
+      const dir = flowDir[curIdx];
+      if (dir === -1) {
+        const row = Math.floor(curIdx / W);
+        const y = row * cellSizeM + cellSizeM / 2;
+        let mouthId = mouthByRow.get(row);
+        if (mouthId === undefined) {
+          mouthId = nodesX.length;
+          nodesX.push(coastX);
+          nodesY.push(y);
+          nodesFlow.push(flowAccum[idx]);
+          mouthNodeIds.push(mouthId);
+          mouthByRow.set(row, mouthId);
+        } else {
+          nodesFlow[mouthId] += flowAccum[idx];
+        }
+        path.push(coastX, y);
+        dst = mouthId;
+        break;
+      }
+      const nIdx = curIdx + offsets[dir];
+      if (nIdx < 0 || nIdx >= count) {
+        const row = Math.floor(curIdx / W);
+        const y = row * cellSizeM + cellSizeM / 2;
+        let mouthId = mouthByRow.get(row);
+        if (mouthId === undefined) {
+          mouthId = nodesX.length;
+          nodesX.push(coastX);
+          nodesY.push(y);
+          nodesFlow.push(flowAccum[idx]);
+          mouthNodeIds.push(mouthId);
+          mouthByRow.set(row, mouthId);
+        } else {
+          nodesFlow[mouthId] += flowAccum[idx];
+        }
+        path.push(coastX, y);
+        dst = mouthId;
+        break;
+      }
+      const nx = nIdx % W;
+      const ny = Math.floor(nIdx / W);
+      const cx = nx * cellSizeM + cellSizeM / 2;
+      const cy = ny * cellSizeM + cellSizeM / 2;
+      if (isRiver[nIdx]) {
+        path.push(cx, cy);
+        dst = nodeId[nIdx];
+        endIdx = nIdx;
+        break;
+      }
+      path.push(cx, cy);
+      curIdx = nIdx;
+    }
+    if (dst === -1) {
+      const row = Math.floor(curIdx / W);
+      const y = row * cellSizeM + cellSizeM / 2;
+      let mouthId = mouthByRow.get(row);
+      if (mouthId === undefined) {
+        mouthId = nodesX.length;
+        nodesX.push(coastX);
+        nodesY.push(y);
+        nodesFlow.push(flowAccum[idx]);
+        mouthNodeIds.push(mouthId);
+        mouthByRow.set(row, mouthId);
+      } else {
+        nodesFlow[mouthId] += flowAccum[idx];
+      }
+      path.push(coastX, y);
       dst = mouthId;
-    } else {
-      dst = nodeId[nIdx];
     }
 
     const sx = nodesX[src];
@@ -180,14 +241,19 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
     const ey = nodesY[dst];
     const start = linePts.length / 2;
     lineOffsets.push(start);
-    linePts.push(sx, sy, ex, ey);
+    for (let i = 0; i < path.length; i += 2) linePts.push(path[i], path[i + 1]);
     lineStart.push(start);
-    lineEnd.push(start + 1);
-    const len = Math.hypot(ex - sx, ey - sy);
+    lineEnd.push(linePts.length / 2 - 1);
+    let len = 0;
+    for (let i = 2; i < path.length; i += 2) {
+      const dxm = path[i] - path[i - 2];
+      const dym = path[i + 1] - path[i - 1];
+      len += Math.hypot(dxm, dym);
+    }
     lengthM.push(len);
     widthM.push(Math.max(1, Math.sqrt(nodesFlow[src])));
-    const elevDst = nIdx >= 0 && nIdx < count ? elevationM[nIdx] : cfg.map.sea_level_m;
-    slope.push((elevationM[idx] - elevDst) / len);
+    const elevDst = endIdx >= 0 && endIdx < count ? elevationM[endIdx] : cfg.map.sea_level_m;
+    slope.push(len === 0 ? 0 : (elevationM[idx] - elevDst) / len);
     order.push(1);
     fordability.push(1);
     edgeSrc.push(src);
@@ -220,7 +286,7 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
       nodeOrder[n] = countMax > 1 ? (max + 1) : max;
     }
   }
-  for (let i = 0; i < edgeSrc.length; i++) order[i] = nodeOrder[edgeDst[i]];
+  for (let i = 0; i < edgeSrc.length; i++) order[i] = nodeOrder[edgeSrc[i]];
 
   const river = {
     nodes: {
@@ -316,4 +382,3 @@ export function buildLandMesh(
     centroidY: new Float32Array([heightM / 2]),
   };
 }
-

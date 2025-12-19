@@ -38,3 +38,4 @@ These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
 The prototype generator now derives D8 flow directions and accumulation on the 1 km terrain grid. Rivers are extracted according to configuration, routed to the coast and annotated with width and Strahler order while marking fall‑line nodes. A single‑cell land mesh remains sufficient for downstream tests.
+River polylines follow the downstream path to the next river cell or the shoreline, deduplicating mouth nodes per coastal row so Strahler ordering reflects the outgoing segment hierarchy.
