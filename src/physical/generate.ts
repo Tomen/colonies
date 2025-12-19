@@ -130,6 +130,40 @@ function distanceToPolylineSet(px: number, py: number, set: PolylineSet): number
   return best;
 }
 
+function clamp01(v: number): number {
+  return Math.min(1, Math.max(0, v));
+}
+
+function sampleNearshoreDepthAt(terrain: TerrainGrid, y: number): number {
+  const { coastline, nearshoreDepthM } = terrain;
+  if (!coastline.offsets.length || nearshoreDepthM.length === 0) return 0;
+  let bestDepth = nearshoreDepthM[0];
+  let bestDist = Infinity;
+  for (let p = 0; p < coastline.offsets.length - 1; p++) {
+    const start = coastline.offsets[p];
+    const end = coastline.offsets[p + 1];
+    for (let i = start; i < end - 1; i++) {
+      const ay = coastline.lines[i * 2 + 1];
+      const by = coastline.lines[(i + 1) * 2 + 1];
+      const minY = Math.min(ay, by);
+      const maxY = Math.max(ay, by);
+      const clampedY = Math.min(maxY, Math.max(minY, y));
+      const dist = Math.abs(y - clampedY);
+      if (dist > bestDist + EPS) continue;
+      const span = Math.max(EPS, by - ay);
+      const t = (clampedY - ay) / span;
+      const depthA = nearshoreDepthM[Math.min(i, nearshoreDepthM.length - 1)];
+      const depthB = nearshoreDepthM[Math.min(i + 1, nearshoreDepthM.length - 1)];
+      const depth = depthA + (depthB - depthA) * t;
+      if (dist < bestDist - EPS || depth > bestDepth) {
+        bestDepth = depth;
+        bestDist = dist;
+      }
+    }
+  }
+  return bestDepth;
+}
+
 function polygonAreaAndCentroid(points: Point[]): { area: number; cx: number; cy: number } {
   let area = 0;
   let cx = 0;
@@ -318,6 +352,72 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
     moistureIx,
     coastline: coastLine,
     nearshoreDepthM,
+  };
+}
+
+function chooseHarbor(terrain: TerrainGrid, cfg: Config) {
+  const { W, H, cellSizeM, coastline } = terrain;
+  const coastX = coastline.lines[0];
+  let minCoastY = Infinity;
+  let maxCoastY = -Infinity;
+  for (let i = 0; i < coastline.lines.length / 2; i++) {
+    const y = coastline.lines[i * 2 + 1];
+    if (y < minCoastY) minCoastY = y;
+    if (y > maxCoastY) maxCoastY = y;
+  }
+  const scores = new Float32Array(W * H).fill(Number.NEGATIVE_INFINITY);
+  let bestCell = 0;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  let bestDepth = 0;
+  let bestExposure = 1;
+  let bestShelter = 0;
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const cx = (x + 0.5) * cellSizeM;
+      const cy = (y + 0.5) * cellSizeM;
+      const distToCoast = distanceToPolylineSet(cx, cy, coastline);
+      if (distToCoast > cellSizeM * 0.75) continue;
+      const along = clamp01((cy - minCoastY) / Math.max(EPS, maxCoastY - minCoastY));
+      const shelter = clamp01(1 - Math.abs(along - 0.5) * 2);
+      const exposure = clamp01(1 - shelter);
+      const depthM = sampleNearshoreDepthAt(terrain, cy);
+      const depthScore = depthM / (depthM + 8);
+      const score =
+        depthScore * cfg.worldgen.harbor.depth +
+        shelter * cfg.worldgen.harbor.shelter -
+        exposure * cfg.worldgen.harbor.exposure;
+      scores[idx] = score;
+      if (score > bestScore + EPS || (Math.abs(score - bestScore) < EPS && idx < bestCell)) {
+        bestCell = idx;
+        bestScore = score;
+        bestDepth = depthM;
+        bestExposure = exposure;
+        bestShelter = shelter;
+      }
+    }
+  }
+
+  if (!Number.isFinite(bestScore)) {
+    const fallbackDepth = sampleNearshoreDepthAt(terrain, 0);
+    bestScore = 0;
+    bestDepth = fallbackDepth;
+    bestExposure = 1;
+    bestShelter = 0;
+  }
+
+  return {
+    harbor: {
+      cellId: bestCell,
+      x: (bestCell % W + 0.5) * cellSizeM,
+      y: (Math.floor(bestCell / W) + 0.5) * cellSizeM,
+      score: bestScore,
+      depthM: bestDepth,
+      exposure: bestExposure,
+      shelter: bestShelter,
+    },
+    scores,
   };
 }
 
@@ -733,6 +833,8 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
     writeGridJson(debugDir, 'hydro_flow.json', { W, H, cellSizeM }, accumulation);
   }
 
+  const { harbor, scores } = chooseHarbor(terrain, cfg);
+
   return {
     river,
     coast: coastline,
@@ -740,6 +842,8 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
       nodeIds: Uint32Array.from(fallLineNodeIds),
       xy: Float32Array.from(fallLineXY),
     },
+    harbor,
+    harborScores: scores,
   };
 }
 
