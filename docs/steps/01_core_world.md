@@ -6,6 +6,7 @@ Implement the foundational world generation and hydrology systems.
 - [x] Implement seeded RNG and JSON configuration loader.
 - [x] Generate 10×10 km height map using noise with ridge orientation controls.
 - [x] Run hydrology model to ensure rivers flow to ocean and avoid sinks.
+- [x] Poisson-sample land sites and build clipped Voronoi land mesh.
 - Score coastline for harbor suitability and place a single initial port.
 - Output raster grids: height, flow accumulation, moisture.
 - [x] Document algorithms and data structures in [`docs/architecture.md`](../architecture.md).

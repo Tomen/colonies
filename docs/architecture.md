@@ -37,4 +37,4 @@ World generation builds three immutable structures in sequence:
 These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
-The prototype world generator produces a 1 km grid with a single straight river and a one‑cell land mesh so downstream systems can be exercised deterministically during Step 1.
+The prototype world generator retains a 1 km grid and straight east‑flowing river, but now Poisson‑samples around twenty sites and derives a clipped Voronoi land mesh. Half‑edges are computed from the Voronoi structure with coast and river intersections flagged for later modules.

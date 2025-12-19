@@ -30,6 +30,7 @@ export interface LandMesh {
   sitesX: Float32Array; sitesY: Float32Array;
   cellStart: Uint32Array; cellCount: Uint32Array;
   vertsX: Float32Array; vertsY: Float32Array;
+  heVert: Uint32Array;
   heTwin: Uint32Array; heNext: Uint32Array; heCell: Uint32Array;
   heMidX: Float32Array; heMidY: Float32Array; heLen: Float32Array;
   heIsCoast: Uint8Array; heCrossesRiver: Uint8Array;
