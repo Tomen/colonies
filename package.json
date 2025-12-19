@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
-    "test": "vitest"
+    "test": "vitest",
+    "generate:debug-site": "cross-env TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm --experimental-specifier-resolution=node src/scripts/generateDebugSite.ts"
   },
   "keywords": [],
   "author": "",
@@ -17,8 +18,10 @@
     "simplex-noise": "^4.0.3"
   },
   "devDependencies": {
+    "@types/d3-delaunay": "^6.0.4",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "cross-env": "^10.1.0",
     "eslint": "^8.0.0",
     "prettier": "^2.0.0",
     "ts-node": "^10.0.0",

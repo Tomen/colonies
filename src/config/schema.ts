@@ -14,7 +14,7 @@ export const configSchema: JSONSchemaType<Config> = {
       properties: {
         size_km: {
           type: 'array',
-          items: { type: 'number' },
+          items: [{ type: 'number' }, { type: 'number' }],
           minItems: 2,
           maxItems: 2,
         },
@@ -124,7 +124,7 @@ export const configSchema: JSONSchemaType<Config> = {
       properties: {
         resolution_px: {
           type: 'array',
-          items: { type: 'number' },
+          items: [{ type: 'number' }, { type: 'number' }],
           minItems: 2,
           maxItems: 2,
         },
