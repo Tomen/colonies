@@ -7,7 +7,7 @@ Implement the foundational world generation and hydrology systems.
 - [x] Generate 10×10 km height map using noise with ridge orientation controls.
 - [x] Derive slope and fertility from the height map.
 - [x] Run hydrology model to ensure rivers flow to ocean and avoid sinks.
-- Score coastline for harbor suitability and place a single initial port.
+- [x] Score coastline for harbor suitability and place a single initial port.
 - [x] Output raster grids: height, flow accumulation, moisture.
 - [x] Document algorithms and data structures in [`docs/architecture.md`](../architecture.md).
 

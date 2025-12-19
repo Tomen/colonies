@@ -63,6 +63,45 @@ function segmentIntersectsPolylineSet(
   return false;
 }
 
+function pointSegmentDistance(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const wx = px - ax;
+  const wy = py - ay;
+  const c1 = vx * wx + vy * wy;
+  if (c1 <= 0) return Math.hypot(px - ax, py - ay);
+  const c2 = vx * vx + vy * vy;
+  if (c2 <= c1) return Math.hypot(px - bx, py - by);
+  const t = c1 / c2;
+  const projX = ax + vx * t;
+  const projY = ay + vy * t;
+  return Math.hypot(px - projX, py - projY);
+}
+
+function distanceToPolylineSet(px: number, py: number, set: PolylineSet): number {
+  let best = Infinity;
+  for (let l = 0; l < set.offsets.length - 1; l++) {
+    const start = set.offsets[l];
+    const end = set.offsets[l + 1];
+    for (let i = start; i < end - 1; i++) {
+      const sx = set.lines[i * 2];
+      const sy = set.lines[i * 2 + 1];
+      const ex = set.lines[(i + 1) * 2];
+      const ey = set.lines[(i + 1) * 2 + 1];
+      const d = pointSegmentDistance(px, py, sx, sy, ex, ey);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
 test('generateTerrain produces grid with coastline', () => {
   const terrain = generateTerrain(defaultConfig, rng());
   expect(terrain.W).toBe(defaultConfig.map.size_km[0]);
@@ -128,6 +167,25 @@ test('river edges terminate at coast nodes', () => {
       expect(nodes.x[edges.dst[i]]).toBeCloseTo(coastX, 3);
     }
   }
+});
+
+test('harbor picks the highest-scoring coastal cell', () => {
+  const terrain = generateTerrain(defaultConfig, rng());
+  const hydro = buildHydro(terrain, defaultConfig);
+  const scores = hydro.harborScores;
+  let bestCell = -1;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < scores.length; i++) {
+    if (scores[i] > bestScore) {
+      bestScore = scores[i];
+      bestCell = i;
+    }
+  }
+  expect(bestCell).toBeGreaterThanOrEqual(0);
+  expect(hydro.harbor.cellId).toBe(bestCell);
+  expect(hydro.harbor.score).toBeCloseTo(bestScore);
+  const distToCoast = distanceToPolylineSet(hydro.harbor.x, hydro.harbor.y, terrain.coastline);
+  expect(distToCoast).toBeLessThanOrEqual(terrain.cellSizeM * 0.75 + EPS);
 });
 
 test('land mesh half-edges are consistent', () => {

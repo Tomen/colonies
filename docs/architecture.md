@@ -33,6 +33,12 @@ World generation builds three immutable structures in sequence:
    attributes including `heCrossesRiver` and `heIsCoast` flags. The Voronoi polygons are built from
    a D3 Delaunay and bounded by the coastline rectangle; half‑edges are paired by shared vertices,
    tagged when they lie on the coastal boundary and checked for intersection against river polylines.
+4. Coastline cells are scored for harbor suitability using the coastline polyline and the sampled
+   `nearshoreDepthM` profile. Depth is normalised against a shallow water constant, shelter rises
+   toward the centre of the shoreline span, exposure is penalised toward the ends, and the three
+   factors are combined with weights from `cfg.worldgen.harbor` to pick the highest‑scoring cell.
+   The selected harbor (cell id, position, score and contributing factors) and the full per‑cell
+   score grid are stored on `HydroNetwork` for later network seeding.
 
 These datasets are read‑only foundations for higher layers.
 
