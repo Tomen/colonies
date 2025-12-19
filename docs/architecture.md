@@ -38,3 +38,5 @@ These datasets are read‑only foundations for higher layers.
 
 ## Current Implementation Details
 The prototype world generator produces a 1 km grid using seeded simplex noise with adjustable ridge orientation. It derives per‑cell slope and fertility, then computes D∞ routing and flow accumulation to extract a river graph that conserves discharge to the coastline. River polylines are simplified into directed edges with width, order and fordability estimates, and fall‑line nodes are marked on steep downstream reaches. The land mesh now Poisson‑samples hundreds of coastal‑biased sites, builds a Delaunay/Voronoi diagram clipped to the land rectangle, and fills half‑edge connectivity with coast and river‑intersection flags plus per‑cell terrain attributes.
+
+Debug exports are available via `cfg.debug.export_grids`, writing `terrain_elevation.json`, `terrain_moisture.json` and `hydro_flow.json` into `cfg.debug.output_dir` for inspection. Each JSON includes raster dimensions, cell size and flattened data arrays to ease troubleshooting of the grid stages.

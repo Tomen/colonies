@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Delaunay } from 'd3-delaunay';
 import { Config, RNG, TerrainGrid, HydroNetwork, LandMesh, PolylineSet } from '../types';
 import { createNoise2D } from './noise';
@@ -5,6 +7,28 @@ import { createNoise2D } from './noise';
 const EPS = 1e-6;
 
 type Point = [number, number];
+
+function ensureDebugDir(cfg: Config): string | undefined {
+  if (!cfg.debug?.export_grids) return undefined;
+  const dir = path.resolve(cfg.debug.output_dir);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeGridJson(
+  dir: string,
+  filename: string,
+  dims: { W: number; H: number; cellSizeM: number },
+  data: ArrayLike<number>
+) {
+  const payload = {
+    W: dims.W,
+    H: dims.H,
+    cellSizeM: dims.cellSizeM,
+    data: Array.from(data),
+  };
+  fs.writeFileSync(path.join(dir, filename), JSON.stringify(payload));
+}
 
 function clampIndex(v: number, max: number): number {
   return Math.min(max - 1, Math.max(0, v));
@@ -276,6 +300,12 @@ export function generateTerrain(cfg: Config, rng: RNG): TerrainGrid {
     offsets: new Uint32Array([0, 2]),
   };
   const nearshoreDepthM = new Float32Array([10, 10]);
+  const debugDir = ensureDebugDir(cfg);
+  if (debugDir) {
+    const dims = { W, H, cellSizeM };
+    writeGridJson(debugDir, 'terrain_elevation.json', dims, elevationM);
+    writeGridJson(debugDir, 'terrain_moisture.json', dims, moistureIx);
+  }
 
   return {
     W,
@@ -304,6 +334,7 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
   const coastX = coastline.lines[0];
   const count = W * H;
   const cellArea = cellSizeM * cellSizeM;
+  const debugDir = ensureDebugDir(cfg);
 
   const routingElev = new Float32Array(count);
   for (let y = 0; y < H; y++) {
@@ -697,6 +728,10 @@ export function buildHydro(terrain: TerrainGrid, cfg: Config): HydroNetwork {
       nodeIsMouth.flatMap((m, i) => (m ? [i] : []))
     ),
   };
+
+  if (debugDir) {
+    writeGridJson(debugDir, 'hydro_flow.json', { W, H, cellSizeM }, accumulation);
+  }
 
   return {
     river,
