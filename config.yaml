@@ -1,0 +1,24 @@
+# World Generation Configuration
+
+seed: 12345
+mapSize: 1000  # 10km x 10km with 10m resolution
+
+# Terrain shape
+ridgeOrientation: 45  # degrees
+coastalPlainWidth: 0.3  # fraction of map width
+ridgeHeight: 200  # meters
+
+# Hydrology
+riverDensity: 0.5
+
+# Terrain variation (Y-axis)
+noiseScale: 0.003  # lower = smoother, larger features
+coastlineWaviness: 0.15  # amplitude of coastline undulation (0-1)
+coastlineFrequency: 2  # number of major bays/headlands
+noiseOctaves: 1  # layers of noise at different scales
+noisePersistence: 0.3  # how much each octave contributes (0-1)
+ridgeVariation: 0.1  # Y-axis variation in ridge height (0-1)
+
+# Coastline
+coastlineMargin: 50  # base distance of coastline from east edge
+oceanDepthGradient: 0.5  # how fast ocean deepens (meters per cell)

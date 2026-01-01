@@ -1,0 +1,209 @@
+.app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-container {
+  flex: 1;
+  position: relative;
+}
+
+/* Control Panel */
+.control-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 100;
+  background: rgba(26, 26, 46, 0.95);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 280px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.control-panel h2 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.control-group {
+  margin-bottom: 12px;
+}
+
+.control-group label {
+  display: block;
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 4px;
+}
+
+.control-group input[type="number"],
+.control-group input[type="range"] {
+  width: 100%;
+  padding: 8px;
+  background: #2a2a4a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.control-group input[type="range"] {
+  padding: 0;
+  height: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.control-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #4a9eff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-row input {
+  flex: 1;
+}
+
+.control-row span {
+  min-width: 40px;
+  text-align: right;
+  font-size: 12px;
+  color: #888;
+}
+
+button {
+  width: 100%;
+  padding: 12px 16px;
+  background: #4a9eff;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+button:hover:not(:disabled) {
+  background: #3a8eef;
+}
+
+button:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: #444;
+}
+
+button.secondary:hover:not(:disabled) {
+  background: #555;
+}
+
+/* Status Bar */
+.status-bar {
+  height: 32px;
+  background: #16162a;
+  border-top: 1px solid #333;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 12px;
+  color: #888;
+  gap: 24px;
+}
+
+.status-bar .status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-bar .status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+}
+
+.status-bar .status-indicator.idle {
+  background: #888;
+}
+
+.status-bar .status-indicator.generating {
+  background: #f0a030;
+  animation: pulse 1s infinite;
+}
+
+.status-bar .status-indicator.ready {
+  background: #4ade80;
+}
+
+.status-bar .status-indicator.error {
+  background: #ef4444;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Progress bar */
+.progress-bar {
+  flex: 1;
+  max-width: 200px;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar .progress-fill {
+  height: 100%;
+  background: #4a9eff;
+  transition: width 0.2s;
+}
+
+/* Layer toggles */
+.layer-toggles {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+}
+
+.layer-toggle {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  background: #2a2a4a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.layer-toggle.active {
+  background: #3a3a5a;
+  border-color: #4a9eff;
+  color: #fff;
+}

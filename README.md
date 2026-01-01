@@ -1,125 +1,149 @@
-# Colonies Simulation
+# Colonies
 
-A procedural American East Coast-like terrain generator with historical settlement growth simulation. The system models terrain generation, hydrology, transport networks, land use, settlements, and economic development over time.
+Procedural American East-Coast-like terrain generator with historical settlement growth simulation.
+
+## Features
+
+- **Procedural Terrain** - Height maps with coastal plains, inland ridges, and river networks
+- **Hydrology Simulation** - D8 flow routing and accumulation for realistic rivers
+- **Transport Networks** - A* pathfinding with road/bridge upgrades based on usage
+- **Interactive Frontend** - 3D terrain viewer with real-time generation
+- **Deterministic** - Seeded RNG for reproducible worlds
 
 ## Quick Start
 
-### Generate a World Map
-
-1. **Install dependencies:**
 ```bash
-npm install
+# Install dependencies
+pnpm install
+
+# Start the interactive frontend
+pnpm dev
+# Open http://localhost:5173
+
+# Or generate terrain via CLI
+pnpm generate
+# Outputs PNG files to output/
 ```
 
-2. **Build the project:**
-```bash
-npm run build
+## Project Structure
+
+```
+colonies/
+├── packages/
+│   ├── shared/      # @colonies/shared - Types and config
+│   ├── core/        # @colonies/core - Simulation logic
+│   ├── cli/         # @colonies/cli - Node.js CLI
+│   └── frontend/    # @colonies/frontend - React + Three.js
+├── docs/
+│   ├── world/       # Simulation documentation
+│   └── frontend/    # Frontend documentation
+└── output/          # Generated PNG files
 ```
 
-3. **Generate terrain and export maps:**
-```bash
-npm run generate
-```
+## Packages
 
-This creates three PNG visualization files:
-- `height_map.png` - Terrain elevation (blue=water, green/brown=land)
-- `flow_accumulation.png` - River network (blue intensity shows flow)
-- `moisture_map.png` - Moisture levels (brown=dry, green=wet)
+| Package | Description |
+|---------|-------------|
+| `@colonies/shared` | Shared types (WorldConfig, TerrainData) and config utilities |
+| `@colonies/core` | Platform-agnostic simulation (works in browser and Node.js) |
+| `@colonies/cli` | Command-line tool for batch terrain generation |
+| `@colonies/frontend` | Interactive 3D viewer with React and Three.js |
 
-## Development
-
-### Available Commands
+## Commands
 
 ```bash
-# Build TypeScript to JavaScript
-npm run build
+# Development
+pnpm dev              # Start frontend dev server
+pnpm generate         # Run CLI terrain generation
 
-# Run all tests
-npm test
+# Build
+pnpm build            # Build all packages
 
-# Watch tests during development
-npm run test:watch
+# Test
+pnpm test             # Run all tests
+pnpm test:watch       # Watch mode
 
-# Lint code for quality issues
-npm run lint
-
-# Format code with Prettier
-npm run format
-
-# Generate world maps
-npm run generate
+# Quality
+pnpm lint             # Lint all packages
+pnpm format           # Format code with Prettier
 ```
 
-### Testing
+## Frontend
 
-The project includes comprehensive tests for:
-- Deterministic terrain generation
-- Hydrology model validation (flow accumulation, sink prevention)
-- Harbor placement algorithms
-- Configuration system
+The interactive viewer runs simulation in a Web Worker and renders terrain with Three.js:
 
-Run `npm test` to verify all functionality works correctly.
+- **Control Panel** - Adjust seed, map size, ridge orientation, river density
+- **3D Terrain** - Height-displaced mesh with custom shaders
+- **Layer Toggles** - Show/hide terrain, rivers, settlements
+- **Real-time Progress** - Generation progress bar
 
-## Architecture
+## CLI Output
 
-The simulation uses a layered approach:
+Running `pnpm generate` creates PNG files in `output/`:
 
-- **Physical Layer**: Terrain, hydrology, soils, vegetation
-- **Cadastral Layer**: Land parcels and ownership (planned)
-- **Network Layer**: Transportation routes (planned)
-- **Society Layer**: Settlements and economy (planned)
-- **Rendering**: Map visualization and GIF export
-
-### Current Implementation (Step 1)
-
-✅ **Core World Generation**
-- Seeded procedural terrain generation
-- Realistic hydrology with proper river drainage
-- Harbor suitability scoring and port placement
-- PNG export system for visualization
-
-### Planned Features
-
-- 🔄 Dynamic transport network with pathfinding
-- 🔄 Settlement growth and land use simulation  
-- 🔄 Economic modeling with resource flow
-- 🔄 Time-lapse GIF export
-- 🔄 Interactive visualization
+| File | Description |
+|------|-------------|
+| `01_height_map.png` | Elevation (blue=water, green/brown=land) |
+| `02_flow_accumulation.png` | River network (blue intensity = flow) |
+| `03_moisture_map.png` | Moisture (brown=dry, green=wet) |
+| `04_cost_field.png` | Movement cost (green=easy, red=difficult) |
+| `05_usage_heatmap.png` | Transport usage (yellow→red heat) |
 
 ## Configuration
 
-World generation is highly configurable:
+World generation parameters:
 
-```typescript
-const config = {
-  seed: 12345,              // Deterministic generation
-  mapSize: 1000,            // Grid resolution (1000 = 10km x 10km)
-  ridgeOrientation: 45,     // Ridge belt angle (degrees)
-  riverDensity: 0.5,        // River network density
-  coastalPlainWidth: 0.3,   // Fraction of map width
-  ridgeHeight: 200,         // Maximum elevation (meters)
-  noiseScale: 0.01,         // Terrain variation
-  harborMinDepth: 10        // Harbor depth requirement
-}
-```
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `seed` | 12345 | Deterministic RNG seed |
+| `mapSize` | 1000 | Grid resolution (1000 = 10km at 10m resolution) |
+| `ridgeOrientation` | 45 | Ridge belt angle in degrees |
+| `riverDensity` | 0.5 | Precipitation multiplier (0-1) |
+| `coastalPlainWidth` | 0.3 | Fraction of map for coastal plain |
+| `ridgeHeight` | 200 | Maximum ridge elevation in meters |
 
-## Technical Details
+## Documentation
 
-- **Language**: TypeScript with ES modules
-- **Testing**: Vitest with comprehensive coverage
-- **Code Quality**: ESLint + Prettier
-- **Algorithms**: D8 flow routing, simplex noise, multi-criteria optimization
-- **Output**: PNG visualization, JSON data export
+- [Architecture](docs/architecture.md) - System design and data flow
+- [Roadmap](docs/roadmap.md) - Implementation progress
+- **Simulation**
+  - [Physical Layer](docs/world/01_physical_layer/README.md) - Terrain and hydrology
+  - [Network Layer](docs/world/02_network_layer/README.md) - Pathfinding and transport
+  - [Design Spec](docs/world/design.md) - Full simulation design
+- **Frontend**
+  - [Frontend Docs](docs/frontend/README.md) - React/Three.js architecture
+
+## Algorithms
+
+- **Simplex Noise** - Multi-octave terrain variation
+- **D8 Flow Routing** - 8-direction steepest descent for water flow
+- **Topological Accumulation** - High-to-low traversal for river networks
+- **Harbor Scoring** - Multi-criteria (depth, shelter, river access)
+- **A* Pathfinding** - Priority queue-based shortest path
+
+## Tech Stack
+
+- **TypeScript** - Strict mode, ES modules
+- **pnpm** - Workspace-based monorepo
+- **Vite** - Frontend dev server and bundler
+- **React** - UI components
+- **Three.js** - 3D terrain rendering
+- **Zustand** - State management
+- **Vitest** - Unit testing
 
 ## Project Status
 
-This project follows a step-by-step implementation approach:
+| Component | Status |
+|-----------|--------|
+| Physical Layer | Complete |
+| Network Layer | Complete |
+| Frontend Viewer | Complete |
+| Cadastral/Growth | Planned |
+| Economy/Industry | Planned |
+| Time-lapse Export | Planned |
 
-1. ✅ **Project Setup** - TypeScript foundation and tooling
-2. ✅ **Core World Generation** - Terrain, hydrology, harbor placement
-3. 🔄 **Transport Network** - Pathfinding and infrastructure
-4. 🔄 **Land Use and Settlements** - Growth simulation
-5. 🔄 **Industry Sites** - Economic modeling
-6. 🔄 **Polish and Export** - Rendering and GIF output
+See [docs/roadmap.md](docs/roadmap.md) for detailed progress.
 
-See `docs/master_checklist.md` for detailed progress tracking.
+## License
+
+ISC

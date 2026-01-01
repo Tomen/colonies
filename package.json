@@ -1,19 +1,17 @@
 {
   "name": "colonies",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Procedural terrain generator with historical settlement simulation",
   "type": "module",
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
-    "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "eslint src/**/*.ts",
-    "format": "prettier --write src/**/*.ts",
-    "generate": "node dist/main.js"
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm --filter @colonies/core test:watch",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\"",
+    "dev": "pnpm --filter @colonies/frontend dev",
+    "generate": "pnpm --filter @colonies/cli generate"
   },
   "repository": {
     "type": "git",
@@ -27,17 +25,11 @@
   },
   "homepage": "https://github.com/Tomen/colonies#readme",
   "devDependencies": {
-    "@types/node": "^24.3.0",
-    "@types/pngjs": "^6.0.5",
+    "@eslint/js": "^9.34.0",
     "@typescript-eslint/eslint-plugin": "^8.41.0",
     "@typescript-eslint/parser": "^8.41.0",
     "eslint": "^9.34.0",
     "prettier": "^3.6.2",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
-  },
-  "dependencies": {
-    "pngjs": "^7.0.0",
-    "simplex-noise": "^4.0.3"
+    "typescript": "^5.9.2"
   }
 }

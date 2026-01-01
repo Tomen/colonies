@@ -4,86 +4,123 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Colonies simulation project that generates procedural American East-Coast-like maps with historical settlement growth. The simulation models terrain generation, hydrology, transport networks, land use, settlements, and economic development over time, outputting classical 2D maps with time-lapse growth visualization.
+A procedural American East-Coast-like terrain generator with historical settlement growth simulation. Generates terrain, hydrology, transport networks, land use, settlements, and economic development over time. Includes an interactive 3D frontend.
 
-## Development Workflow
+## Monorepo Structure
 
-Follow the sequential implementation steps defined in `docs/master_checklist.md`:
+```
+colonies/
+├── packages/
+│   ├── shared/      # @colonies/shared - Types and config
+│   ├── core/        # @colonies/core - Simulation logic
+│   ├── cli/         # @colonies/cli - Node.js CLI
+│   └── frontend/    # @colonies/frontend - React + Three.js
+├── docs/
+│   ├── world/       # Simulation documentation
+│   └── frontend/    # Frontend documentation
+└── output/          # Generated PNG files
+```
 
-1. **Step 0: Project Setup** - TypeScript/Node.js foundation with testing
-2. **Step 1: Core World Generation** - Terrain, hydrology, and harbor placement  
-3. **Step 2: Transport Network** - Pathfinding and dynamic infrastructure
-4. **Step 3: Land Use and Settlements** - Cadastral layer and urban growth
-5. **Step 4: Industry Sites** - Economic modeling and resource flow
-6. **Step 5: Rendering and GIF Export** - Visualization and output
-
-## Essential Commands
-
-Based on the project setup requirements in `docs/steps/00_project_setup.md`:
+## Commands
 
 ```bash
-# Testing (must pass for Definition of Done)
-npm test
+# Install dependencies
+pnpm install
 
-# Linting (must pass for Definition of Done)  
-npm run lint
+# Start frontend dev server
+pnpm dev
 
-# Build project
-npm run build
+# Generate terrain via CLI
+pnpm generate
+
+# Build all packages
+pnpm build
+
+# Run all tests (required before completing any step)
+pnpm test
+
+# Watch mode for development
+pnpm test:watch
+
+# Lint code (required before completing any step)
+pnpm lint
+
+# Format code
+pnpm format
 ```
+
+## Packages
+
+### @colonies/shared
+Types and configuration utilities:
+- `types.ts`: Core interfaces (Point, WorldConfig, TerrainData, etc.)
+- `config-schema.ts`: Default config values and validation
+
+### @colonies/core
+Platform-agnostic simulation (browser + Node.js):
+- `rng.ts`: Seeded random number generator
+- `worldgen.ts`: Terrain generation with simplex noise
+- `transport.ts`: A* pathfinding and network management
+- `growth.ts`: Settlement management
+
+### @colonies/cli
+Node.js CLI for batch generation:
+- `main.ts`: Entry point
+- `config.ts`: YAML config file loading
+- `png_exporter.ts`: PNG visualization output
+
+### @colonies/frontend
+React + Three.js interactive viewer:
+- `src/store/`: Zustand state management
+- `src/three/`: Three.js terrain components
+- `src/workers/`: Web Worker for simulation
+- `src/components/`: React UI components
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - System design
+- [Roadmap](docs/roadmap.md) - Implementation progress
+- **Simulation**: [docs/world/](docs/world/)
+  - [Physical Layer](docs/world/01_physical_layer/README.md)
+  - [Network Layer](docs/world/02_network_layer/README.md)
+  - [Design Spec](docs/world/design.md)
+- **Frontend**: [docs/frontend/](docs/frontend/)
+
+## Implementation Status
+
+| Component | Status | Documentation |
+|-----------|--------|---------------|
+| Physical Layer | Complete | [docs/world/01_physical_layer/](docs/world/01_physical_layer/README.md) |
+| Network Layer | Complete | [docs/world/02_network_layer/](docs/world/02_network_layer/README.md) |
+| Frontend Viewer | Complete | [docs/frontend/](docs/frontend/README.md) |
+| Cadastral/Growth | Pending | [docs/world/todo/03_growth.md](docs/world/todo/03_growth.md) |
+| Economy/Industry | Pending | [docs/world/todo/04_industries.md](docs/world/todo/04_industries.md) |
 
 ## Definition of Done
 
-Every implementation step must satisfy ALL criteria in `docs/definition_of_done.md`:
-- `npm test` passes with coverage for new functionality
-- `npm run lint` reports no warnings or errors
-- Architecture docs updated in `docs/architecture.md`
-- Step marked complete in `docs/master_checklist.md`
-- All acceptance criteria verified
-- Code reviewed and approved
+Before marking any layer complete:
+1. `pnpm test` passes with coverage for new functionality
+2. `pnpm lint` reports no warnings/errors
+3. Create documentation in appropriate `docs/` subfolder
+4. Update `docs/architecture.md` and `docs/roadmap.md`
 
-## Architecture Overview
+## Key Algorithms
 
-The simulation uses a layered architecture:
-
-### Core Modules (per `docs/architecture.md`)
-- `types.ts` - Shared type definitions
-- `worldgen.ts` - Physical layer generation (terrain, hydrology, soils, vegetation)
-- `transport.ts` - Network creation and pathfinding
-- `growth.ts` - Land use, parcels, settlements, economy
-- `render.ts` - Map rendering
-- `export_gif.ts` - GIF export utility
-
-### Data Layers
-- **Physical Layer**: Heightfield, hydrology, soils/fertility, vegetation (raster grids)
-- **Cadastral Layer**: DCEL overlay with parcel polygons and ownership
-- **Network Layer**: Movement graph with roads, ferries, bridges
-- **Society Layer**: Settlements, population, economy, governance
-
-## Key Design Principles
-
-- **Deterministic RNG** with seed support
-- **Data-driven configuration** via JSON/TOML
-- **Modular design** with clean separation between simulation ticks and rendering
-- **Sequential step implementation** - each milestone builds on previous work
-- **Comprehensive testing** for algorithms like DCEL operations, hydrology, pathfinding
-
-## Agent Guidelines
-
-When working on this repository:
-1. Work through steps sequentially as outlined in `docs/steps/`
-2. Record progress in `docs/master_checklist.md`
-3. Always run `npm test` and `npm run lint` after modifications
-4. Update `docs/architecture.md` when functionality changes
-5. Use focused commits and cite files/terminal output with line numbers
-6. Satisfy the complete Definition of Done before marking steps complete
+- **D8 Flow Routing**: 8-direction steepest descent for water flow
+- **Topological Flow Accumulation**: High-to-low elevation traversal
+- **Harbor Scoring**: Multi-criteria (depth, shelter, river access)
+- **A* Pathfinding**: Priority queue-based shortest path
+- **Simplex Noise**: Seeded terrain variation
 
 ## Configuration
 
-The system supports runtime configuration without recompilation for:
-- Terrain shape parameters
-- Harbor scoring weights  
-- Parcel size and frontage bias
-- Network costs and upgrade thresholds
-- Crop yields and migration rates
-- Governance parameters
+World generation parameters via `WorldConfig` in `@colonies/shared`:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `seed` | 12345 | Deterministic RNG seed |
+| `mapSize` | 1000 | Grid resolution (10km at 10m resolution) |
+| `ridgeOrientation` | 45 | Ridge belt angle in degrees |
+| `riverDensity` | 0.5 | Precipitation multiplier (0-1) |
+| `coastalPlainWidth` | 0.3 | Fraction of map for coastal plain |
+| `ridgeHeight` | 200 | Maximum ridge elevation in meters |

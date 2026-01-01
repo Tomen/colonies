@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(npm test)",
+      "Bash(npm run lint)",
+      "Bash(npm run build:*)",
+      "Bash(npm run generate:*)",
+      "Bash(timeout 30000 npm run generate)",
+      "Bash(timeout 10000 npm run generate)",
+      "Bash(timeout:*)",
+      "Bash(node:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm generate:*)",
+      "Bash(pnpm --filter @colonies/core test)",
+      "Bash(pnpm lint:*)",
+      "Bash(dir:*)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__click",
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__chrome-devtools__wait_for",
+      "mcp__chrome-devtools__take_screenshot",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm --filter @colonies/cli build:*)",
+      "WebSearch",
+      "WebFetch(domain:www.redblobgames.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
