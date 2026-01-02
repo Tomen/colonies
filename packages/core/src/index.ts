@@ -51,3 +51,17 @@ export {
   clipPolygon,
   isConvex,
 } from './polygon-utils.js';
+
+// Buildings & Streets
+export { generateBuildings, generateBuildingForParcel } from './buildings.js';
+export {
+  generateStreets,
+  generateStreetsForSettlement,
+  generateDefaultStreets,
+} from './streets.js';
+export {
+  generateSettlementName,
+  generateSettlementNames,
+  DEFAULT_NAMING_CONFIG,
+} from './naming.js';
+export type { NamingConfig } from './naming.js';

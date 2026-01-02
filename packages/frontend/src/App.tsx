@@ -8,6 +8,7 @@ import { SkyDome } from './three/SkyDome';
 import { FlyControls } from './three/FlyControls';
 import { ControlPanel } from './components/ControlPanel';
 import { StatusBar } from './components/StatusBar';
+import { CellDebugPanel } from './components/CellDebugPanel';
 import './App.css';
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
   return (
     <div className="app">
       <ControlPanel />
+      <CellDebugPanel />
       <div className="canvas-container">
         <Canvas
           camera={{ position: [1200, 600, 1000], fov: 60, near: 1, far: 5000 }}

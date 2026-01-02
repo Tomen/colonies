@@ -28,6 +28,10 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
     slow: false,
   });
 
+  // Orbit state for middle-click drag
+  const isOrbiting = useRef(false);
+  const orbitDistance = useRef(500); // Distance to orbit pivot point
+
   // Euler angles for look direction
   const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
   const initialized = useRef(false);
@@ -66,16 +70,25 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
       isLocked.current = document.pointerLockElement === canvas;
     };
 
-    const onClick = () => {
-      if (!isLocked.current) {
-        canvas.requestPointerLock();
+    const onMouseDown = (event: MouseEvent) => {
+      // Right-click (button 2) toggles pointer lock
+      if (event.button === 2) {
+        if (isLocked.current) {
+          document.exitPointerLock();
+        } else {
+          canvas.requestPointerLock();
+        }
+      }
+      // Middle-click (button 1) starts orbit when not in pointer lock
+      if (event.button === 1 && !isLocked.current) {
+        isOrbiting.current = true;
+        event.preventDefault();
       }
     };
 
-    const onMouseDown = (event: MouseEvent) => {
-      // Right-click (button 2) exits pointer lock
-      if (event.button === 2 && isLocked.current) {
-        document.exitPointerLock();
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button === 1) {
+        isOrbiting.current = false;
       }
     };
 
@@ -85,22 +98,44 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
     };
 
     const onMouseMove = (event: MouseEvent) => {
-      if (!isLocked.current) return;
-
       const movementX = event.movementX || 0;
       const movementY = event.movementY || 0;
 
-      euler.current.y -= movementX * lookSpeed;
-      euler.current.x -= movementY * lookSpeed;
+      if (isLocked.current) {
+        // Pointer lock mode: free look
+        euler.current.y -= movementX * lookSpeed;
+        euler.current.x -= movementY * lookSpeed;
 
-      // Clamp vertical look
-      euler.current.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.current.x));
+        // Clamp vertical look
+        euler.current.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.current.x));
 
-      camera.quaternion.setFromEuler(euler.current);
+        camera.quaternion.setFromEuler(euler.current);
+      } else if (isOrbiting.current) {
+        // Orbit mode: rotate around a point in front of the camera
+        const pivot = new THREE.Vector3(0, 0, -orbitDistance.current);
+        pivot.applyQuaternion(camera.quaternion);
+        pivot.add(camera.position);
+
+        // Update euler angles
+        euler.current.y -= movementX * lookSpeed;
+        euler.current.x -= movementY * lookSpeed;
+        euler.current.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.current.x));
+
+        // Apply new rotation
+        camera.quaternion.setFromEuler(euler.current);
+
+        // Reposition camera to maintain distance from pivot
+        const offset = new THREE.Vector3(0, 0, orbitDistance.current);
+        offset.applyQuaternion(camera.quaternion);
+        camera.position.copy(pivot).add(offset);
+      }
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isLocked.current) return;
+      // Skip if typing in an input field
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
 
       switch (event.code) {
         case 'KeyW':
@@ -168,18 +203,18 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
     };
 
     document.addEventListener('pointerlockchange', onPointerLockChange);
-    canvas.addEventListener('click', onClick);
     canvas.addEventListener('contextmenu', onContextMenu);
     document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mouseup', onMouseUp);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
 
     return () => {
       document.removeEventListener('pointerlockchange', onPointerLockChange);
-      canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('contextmenu', onContextMenu);
       document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
@@ -187,21 +222,44 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
   }, [camera, gl, lookSpeed]);
 
   useFrame((_, delta) => {
-    if (!isLocked.current) return;
-
     const state = moveState.current;
     const speedMultiplier = state.slow ? 0.01 : 1;
     const speed = moveSpeed * delta * speedMultiplier;
+    let moved = false;
 
-    // Forward/backward - fly in camera's look direction (including pitch)
-    if (state.forward || state.backward) {
-      const forward = new THREE.Vector3(0, 0, -1);
-      forward.applyQuaternion(camera.quaternion);
-      const dir = state.forward ? 1 : -1;
-      camera.position.addScaledVector(forward, dir * speed);
+    if (isLocked.current) {
+      // CAMERA MODE: W/S follow pitch, R/F horizontal
+      if (state.forward || state.backward) {
+        const forward = new THREE.Vector3(0, 0, -1);
+        forward.applyQuaternion(camera.quaternion);
+        const dir = state.forward ? 1 : -1;
+        camera.position.addScaledVector(forward, dir * speed);
+        moved = true;
+      }
+
+      if (state.horizontalForward || state.horizontalBackward) {
+        const forward = new THREE.Vector3(0, 0, -1);
+        forward.applyQuaternion(camera.quaternion);
+        forward.y = 0;
+        forward.normalize();
+        const dir = state.horizontalForward ? 1 : -1;
+        camera.position.addScaledVector(forward, dir * speed);
+        moved = true;
+      }
+    } else {
+      // NON-CAMERA MODE: W/S are horizontal (like R/F in camera mode)
+      if (state.forward || state.backward) {
+        const forward = new THREE.Vector3(0, 0, -1);
+        forward.applyQuaternion(camera.quaternion);
+        forward.y = 0;
+        forward.normalize();
+        const dir = state.forward ? 1 : -1;
+        camera.position.addScaledVector(forward, dir * speed);
+        moved = true;
+      }
     }
 
-    // Strafe left/right - move perpendicular to look direction on XZ plane
+    // Strafe left/right - same in both modes
     if (state.left || state.right) {
       const right = new THREE.Vector3(1, 0, 0);
       right.applyQuaternion(camera.quaternion);
@@ -209,29 +267,22 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
       right.normalize();
       const dir = state.right ? 1 : -1;
       camera.position.addScaledVector(right, dir * speed);
+      moved = true;
     }
 
-    // Horizontal forward/backward - move in look direction on XZ plane (no height change)
-    if (state.horizontalForward || state.horizontalBackward) {
-      const forward = new THREE.Vector3(0, 0, -1);
-      forward.applyQuaternion(camera.quaternion);
-      forward.y = 0;
-      forward.normalize();
-      const dir = state.horizontalForward ? 1 : -1;
-      camera.position.addScaledVector(forward, dir * speed);
-    }
-
-    // Up/down - world Y axis
+    // Up/down - world Y axis, same in both modes
     if (state.up) {
       camera.position.y += speed;
+      moved = true;
     }
     if (state.down) {
       camera.position.y -= speed;
+      moved = true;
     }
 
-    // Save camera state periodically (every 500ms)
+    // Save camera state periodically (every 500ms) if moved or orbiting
     const now = Date.now();
-    if (now - lastSaveTime.current > 500) {
+    if ((moved || isOrbiting.current) && now - lastSaveTime.current > 500) {
       lastSaveTime.current = now;
       setCameraState({
         position: [camera.position.x, camera.position.y, camera.position.z],

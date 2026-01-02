@@ -12,6 +12,8 @@ Project progress and implementation milestones.
 | Cadastral Layer | Complete | [world/world.md#cadastral-layer](world/world.md) |
 | Network Layer | Complete | [world/02_network_layer/](world/02_network_layer/README.md) |
 | Settlement Seeding | Complete | [world/world.md#settlements--urbanization](world/world.md) |
+| Building Generation | Complete | Procedural buildings and streets |
+| Settlement Naming | Complete | Terrain-based name generator |
 
 ### Frontend (packages/frontend)
 
@@ -21,8 +23,10 @@ Project progress and implementation milestones.
 | Three.js Scene | Complete | Terrain mesh with shaders |
 | Web Worker | Complete | Background simulation |
 | Control Panel | Complete | Config sliders, generate button |
-| Layer Toggles | Complete | Show/hide terrain, rivers, parcels, settlements |
+| Layer Toggles | Complete | Show/hide terrain, rivers, parcels, settlements, buildings |
 | Network Visualization | Complete | Cost heatmap, settlement paths, click-to-path |
+| River Rendering | Complete | V-shaped carved channels with flow-scaled widths ([docs](frontend/river-rendering.md)) |
+| Buildings & Streets | Complete | Procedural 3D buildings with roofs, street ribbons |
 
 ## Living World Implementation
 
@@ -33,7 +37,7 @@ The next major phase: transform static terrain into a living simulation.
 | Milestone | Todo File | Status | Description |
 |-----------|-----------|--------|-------------|
 | M3 | [02_network_layer/](world/02_network_layer/README.md) | Complete | A* pathfinding, road emergence, river crossings |
-| M4 | [M4_settlements.md](world/todo/M4_settlements.md) | Pending | Aggregate population, growth, migration |
+| M4 | [M4_settlements.md](world/todo/M4_settlements.md) | In Progress | Buildings, streets, naming; population dynamics pending |
 | M5 | [M5_economy.md](world/todo/M5_economy.md) | Pending | Production, trade routing, industries |
 | M6 | [M6_agents.md](world/todo/M6_agents.md) | Pending | Individual agents, households, companies |
 | M7 | [M7_simulation.md](world/todo/M7_simulation.md) | Pending | Monthly tick loop, phase ordering, snapshots |
@@ -70,7 +74,7 @@ High-level feature milestones from the [world design](world/world.md):
 | M1 | Physical world | Complete | - |
 | M2 | Parcels & claims | Complete | M1 |
 | M3 | Movement network | Complete | M1 |
-| M4 | Settlements & Urbanization | Pending | M3 |
+| M4 | Settlements & Urbanization | In Progress | M3 |
 | M5 | Economy & Resources | Pending | M3, M4 |
 | M6 | Agents & Governance | Pending | M4, M5 |
 | M7 | Simulation Engine | Pending | M4, M5, M6 |
@@ -93,12 +97,15 @@ High-level feature milestones from the [world design](world/world.md):
 - Usage tracking → road upgrades (trail→road→turnpike)
 - River crossing detection (ford→ferry→bridge)
 
-**M4 Settlements & Urbanization** - aggregate population dynamics
-- Carrying capacity model
-- Birth/death rates as aggregate numbers
-- Migration between settlements
-- Settlement expansion triggers
-- Pioneer founding of new settlements
+**M4 Settlements & Urbanization** - settlement infrastructure and growth
+- Procedural 3D buildings on parcels (house, farmhouse, barn, shop, church, etc.) ✓
+- Street rendering from network edges ✓
+- Terrain-based settlement naming ✓
+- Carrying capacity model (pending)
+- Birth/death rates as aggregate numbers (pending)
+- Migration between settlements (pending)
+- Settlement expansion triggers (pending)
+- Pioneer founding of new settlements (pending)
 
 **M5 Economy & Resources** - production and trade
 - Resource production (food, timber, etc.)

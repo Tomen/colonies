@@ -24,6 +24,7 @@ interface VisibleLayers {
   settlements: boolean;
   parcels: boolean;
   networkMode: NetworkMode;
+  buildings: boolean;
 }
 
 export interface CameraState {
@@ -62,6 +63,9 @@ interface SimulationState {
   pathfindingStart: number | null; // cell id
   currentPath: PathResult | null;
 
+  // Cell selection for debug
+  selectedCell: number | null;
+
   // Actions
   initWorker: () => void;
   setCameraState: (camera: CameraState) => void;
@@ -76,6 +80,7 @@ interface SimulationState {
   setPathfindingStart: (cellId: number | null) => void;
   setCurrentPath: (path: PathResult | null) => void;
   findPath: (fromCell: number, toCell: number) => void;
+  setSelectedCell: (cellId: number | null) => void;
 }
 
 const DEFAULT_VISIBLE_LAYERS: VisibleLayers = {
@@ -88,6 +93,7 @@ const DEFAULT_VISIBLE_LAYERS: VisibleLayers = {
   settlements: true,
   parcels: true,
   networkMode: 'off',
+  buildings: true,
 };
 
 export const useSimulationStore = create<SimulationState>()(
@@ -114,6 +120,9 @@ export const useSimulationStore = create<SimulationState>()(
       pathfindingEnabled: false,
       pathfindingStart: null,
       currentPath: null,
+
+      // Cell selection
+      selectedCell: null,
 
       // Actions
       setCameraState: (camera) => {
@@ -223,6 +232,10 @@ export const useSimulationStore = create<SimulationState>()(
         if (!worker) return;
         worker.postMessage({ type: 'FIND_PATH', fromCell, toCell });
       },
+
+      setSelectedCell: (cellId) => {
+        set({ selectedCell: cellId });
+      },
     }),
     {
       name: 'colonies-simulation',
@@ -231,6 +244,23 @@ export const useSimulationStore = create<SimulationState>()(
         visibleLayers: state.visibleLayers,
         camera: state.camera,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<SimulationState>;
+        return {
+          ...currentState,
+          ...persisted,
+          // Merge visibleLayers with defaults to ensure new properties have default values
+          visibleLayers: {
+            ...DEFAULT_VISIBLE_LAYERS,
+            ...(persisted.visibleLayers || {}),
+          },
+          // Merge camera with defaults
+          camera: {
+            ...DEFAULT_CAMERA,
+            ...(persisted.camera || {}),
+          },
+        };
+      },
     }
   )
 );

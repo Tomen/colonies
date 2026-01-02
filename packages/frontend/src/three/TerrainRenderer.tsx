@@ -5,6 +5,8 @@ import { ParcelMesh } from './ParcelMesh';
 import { SettlementMarkers } from './SettlementMarkers';
 import { NetworkMesh } from './NetworkMesh';
 import { CellClickHandler } from './CellClickHandler';
+import { BuildingsMesh } from './BuildingsMesh';
+import { StreetsMesh } from './StreetsMesh';
 
 export function TerrainRenderer() {
   const terrain = useSimulationStore((s) => s.terrain);
@@ -14,6 +16,7 @@ export function TerrainRenderer() {
   const riverMode = useSimulationStore((s) => s.visibleLayers.riverMode);
   const showParcels = useSimulationStore((s) => s.visibleLayers.parcels);
   const showSettlements = useSimulationStore((s) => s.visibleLayers.settlements);
+  const showBuildings = useSimulationStore((s) => s.visibleLayers.buildings);
   const networkMode = useSimulationStore((s) => s.visibleLayers.networkMode);
   const currentPath = useSimulationStore((s) => s.currentPath);
 
@@ -23,6 +26,8 @@ export function TerrainRenderer() {
 
   const parcels = terrain.parcels || [];
   const settlements = terrain.settlements || [];
+  const buildings = terrain.buildings || [];
+  const streets = terrain.streets || [];
   const useHeight = heightMode === '3d';
 
   return (
@@ -43,6 +48,12 @@ export function TerrainRenderer() {
           showWireframe={true}
           showFill={true}
         />
+      )}
+      {showBuildings && streets.length > 0 && (
+        <StreetsMesh streets={streets} />
+      )}
+      {showBuildings && buildings.length > 0 && (
+        <BuildingsMesh buildings={buildings} />
       )}
       {showSettlements && settlements.length > 0 && (
         <SettlementMarkers settlements={settlements} />

@@ -233,6 +233,12 @@ export function ControlPanel() {
             >
               Towns
             </button>
+            <button
+              className={`layer-toggle ${visibleLayers.buildings ? 'active' : ''}`}
+              onClick={() => setVisibleLayer('buildings', !visibleLayers.buildings)}
+            >
+              Buildings
+            </button>
           </div>
 
           <div className="control-group">

@@ -317,3 +317,67 @@ export interface Rect {
   maxX: number;
   maxY: number;
 }
+
+// ============================================================================
+// Buildings & Streets
+// ============================================================================
+
+/**
+ * Building types based on land use and function.
+ */
+export type BuildingType =
+  | 'house'
+  | 'farmhouse'
+  | 'barn'
+  | 'shop'
+  | 'warehouse'
+  | 'church'
+  | 'townhall';
+
+/**
+ * Roof styles for procedural buildings.
+ */
+export type RoofType = 'gable' | 'hip' | 'flat';
+
+/**
+ * Visual style parameters for a building.
+ */
+export interface BuildingStyle {
+  roofType: RoofType;
+  stories: number; // 1-3
+  wallColor: string; // Hex color for walls
+  roofColor: string; // Hex color for roof
+}
+
+/**
+ * A building placed on a parcel.
+ */
+export interface Building {
+  id: string;
+  parcelId: string; // Parent parcel
+  type: BuildingType;
+  position: Point; // Center position
+  footprint: Point[]; // Building outline vertices (rectangle)
+  width: number; // Building width in meters
+  depth: number; // Building depth in meters
+  height: number; // Building height in meters (walls only)
+  rotation: number; // Rotation in radians
+  style: BuildingStyle;
+}
+
+/**
+ * Street types based on importance.
+ */
+export type StreetType = 'lane' | 'road' | 'main';
+
+/**
+ * A street segment within a settlement.
+ */
+export interface Street {
+  id: string;
+  fromCell: number; // Source cell ID
+  toCell: number; // Destination cell ID
+  path: Point[]; // Street centerline points
+  width: number; // Street width in meters
+  type: StreetType;
+}

@@ -24,6 +24,13 @@ export type {
   LandUse,
   Parcel,
   Rect,
+  // Building & Street types
+  BuildingType,
+  RoofType,
+  BuildingStyle,
+  Building,
+  StreetType,
+  Street,
 } from './types.js';
 
 // Config utilities

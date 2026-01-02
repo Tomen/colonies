@@ -31,9 +31,10 @@ const VORONOI_COLOR = new THREE.Color(0xcccccc); // Light gray for voronoi mode
 
 const RIVER_THRESHOLD = 50;
 
-// V-shaped channel parameters
-const W_O = 6; // Outer width: distance between bank lines
-const W_I = 3; // Inner width: distance between floor lines
+// V-shaped channel parameters (base values, scaled by flow)
+const W_O_BASE = 4; // Base outer width: distance between bank lines
+const W_I_BASE = 2; // Base inner width: distance between floor lines
+const WIDTH_SCALE = 2; // How much width increases with flow
 const RIVER_BANK_COLOR = new THREE.Color(0x8b7355); // Brown/muddy bank color
 
 // Debug colors for river carving visualization
@@ -215,6 +216,11 @@ function buildRiverCellGeometry(
   const yOriginal = elevationScale > 0 ? cell.elevation * elevationScale : flatHeight;
   const yCarved = elevationScale > 0 ? carvedElevation * elevationScale : flatHeight;
 
+  // === Flow-scaled channel widths ===
+  const flowFactor = Math.log(cell.flowAccumulation / RIVER_THRESHOLD + 1);
+  const W_O = W_O_BASE + flowFactor * WIDTH_SCALE;
+  const W_I = W_I_BASE + flowFactor * WIDTH_SCALE;
+
   // === Step 1: Calculate flow direction ===
   let flowDirX = 0;
   let flowDirY = 1; // Default: flow "down" (+Y in map coords)
@@ -362,16 +368,33 @@ function buildRiverCellGeometry(
       const edgeDirY = dy_edge / edgeLen;
       const distToV0 = Math.sqrt((crossX - v0.x) ** 2 + (crossY - v0.y) ** 2);
       const distToV1 = Math.sqrt((crossX - v1.x) ** 2 + (crossY - v1.y) ** 2);
-      const halfWo = Math.min(W_O / 2, Math.min(distToV0, distToV1) * 0.9);
-      const halfWi = Math.min(W_I / 2, Math.min(distToV0, distToV1) * 0.7);
+
+      // Average flow-scaled widths between this cell and neighbor for smooth transition
+      const neighborFlowFactor = Math.log(neighbor.flowAccumulation / RIVER_THRESHOLD + 1);
+      const neighborW_O = W_O_BASE + neighborFlowFactor * WIDTH_SCALE;
+      const neighborW_I = W_I_BASE + neighborFlowFactor * WIDTH_SCALE;
+      const avgW_O = (W_O + neighborW_O) / 2;
+      const avgW_I = (W_I + neighborW_I) / 2;
+
+      // Use the SAME flow perpendicular as spoke calculation (not neighbor direction!)
+      // This ensures edge widths match spoke widths
+      // perpComponent = how much moving along edge contributes to perp distance from flow
+      const edgePerpComponent = Math.abs(edgeDirX * flowPerpX + edgeDirY * flowPerpY);
+
+      // If edge is nearly parallel to flow, clamp to avoid huge widths
+      const effectivePerp = Math.max(edgePerpComponent, 0.3);
+
+      // Half-widths along edge to achieve perpendicular distance avgW_O/2 from flow
+      const halfWoAdjusted = Math.min((avgW_O / 2) / effectivePerp, Math.min(distToV0, distToV1) * 0.9);
+      const halfWiAdjusted = Math.min((avgW_I / 2) / effectivePerp, Math.min(distToV0, distToV1) * 0.7);
 
       // Edge-based bank points (e_b0 toward v0, e_b1 toward v1)
-      const e_b0 = { x: crossX - edgeDirX * halfWo, z: crossY - edgeDirY * halfWo };
-      const e_b1 = { x: crossX + edgeDirX * halfWo, z: crossY + edgeDirY * halfWo };
+      const e_b0 = { x: crossX - edgeDirX * halfWoAdjusted, z: crossY - edgeDirY * halfWoAdjusted };
+      const e_b1 = { x: crossX + edgeDirX * halfWoAdjusted, z: crossY + edgeDirY * halfWoAdjusted };
 
       // Edge-based floor points (e_f0 toward v0, e_f1 toward v1)
-      const e_f0 = { x: crossX - edgeDirX * halfWi, z: crossY - edgeDirY * halfWi };
-      const e_f1 = { x: crossX + edgeDirX * halfWi, z: crossY + edgeDirY * halfWi };
+      const e_f0 = { x: crossX - edgeDirX * halfWiAdjusted, z: crossY - edgeDirY * halfWiAdjusted };
+      const e_f1 = { x: crossX + edgeDirX * halfWiAdjusted, z: crossY + edgeDirY * halfWiAdjusted };
 
       // Heights
       const neighborCarveDepth = Math.min(
@@ -856,17 +879,44 @@ export function VoronoiTerrainMesh({
           const distToV0 = Math.sqrt((crossX - sharedV0.x) ** 2 + (crossY - sharedV0.y) ** 2);
           const distToV1 = Math.sqrt((crossX - sharedV1.x) ** 2 + (crossY - sharedV1.y) ** 2);
 
-          // Bank and floor half-widths (clamped to not exceed distance to vertices)
-          const halfWo = Math.min(W_O / 2, Math.min(distToV0, distToV1) * 0.9);
-          const halfWi = Math.min(W_I / 2, Math.min(distToV0, distToV1) * 0.7);
+          // Flow-scaled channel widths (average of both cells)
+          const avgFlow = (cell.flowAccumulation + neighbor.flowAccumulation) / 2;
+          const flowFactorDbg = Math.log(avgFlow / RIVER_THRESHOLD + 1);
+          const W_O_dbg = W_O_BASE + flowFactorDbg * WIDTH_SCALE;
+          const W_I_dbg = W_I_BASE + flowFactorDbg * WIDTH_SCALE;
 
-          // Bank points at ±W_O/2 from crossing along edge
+          // Use the cell's flow perpendicular (same as spoke calculation)
+          // Need to compute flow direction for this cell
+          let cellFlowPerpX = -1, cellFlowPerpY = 0; // Default
+          if (cell.flowsTo !== null) {
+            const downstream = cells[cell.flowsTo];
+            if (downstream) {
+              const dxFlow = downstream.centroid.x - cell.centroid.x;
+              const dyFlow = downstream.centroid.y - cell.centroid.y;
+              const flowLen = Math.sqrt(dxFlow * dxFlow + dyFlow * dyFlow);
+              if (flowLen > 0) {
+                // flowPerp is 90° rotation of flow direction
+                cellFlowPerpX = -dyFlow / flowLen;
+                cellFlowPerpY = dxFlow / flowLen;
+              }
+            }
+          }
+
+          // perpComponent = how much moving along edge contributes to perp distance from flow
+          const edgePerpComponentDbg = Math.abs(edgeDirX * cellFlowPerpX + edgeDirY * cellFlowPerpY);
+          const effectivePerpDbg = Math.max(edgePerpComponentDbg, 0.3);
+
+          // Bank and floor half-widths (adjusted, clamped to not exceed distance to vertices)
+          const halfWo = Math.min((W_O_dbg / 2) / effectivePerpDbg, Math.min(distToV0, distToV1) * 0.9);
+          const halfWi = Math.min((W_I_dbg / 2) / effectivePerpDbg, Math.min(distToV0, distToV1) * 0.7);
+
+          // Bank points at adjusted distance from crossing along edge
           const b0x = crossX - edgeDirX * halfWo;
           const b0y = crossY - edgeDirY * halfWo;
           const b1x = crossX + edgeDirX * halfWo;
           const b1y = crossY + edgeDirY * halfWo;
 
-          // Floor points at ±W_I/2 from crossing along edge
+          // Floor points at adjusted distance from crossing along edge
           const f0x = crossX - edgeDirX * halfWi;
           const f0y = crossY - edgeDirY * halfWi;
           const f1x = crossX + edgeDirX * halfWi;
@@ -975,6 +1025,11 @@ export function VoronoiTerrainMesh({
       const flowPerpX = -flowDirY;
       const flowPerpY = flowDirX;
 
+      // Flow-scaled channel widths
+      const flowFactorR = Math.log(cell.flowAccumulation / RIVER_THRESHOLD + 1);
+      const W_O_r = W_O_BASE + flowFactorR * WIDTH_SCALE;
+      const W_I_r = W_I_BASE + flowFactorR * WIDTH_SCALE;
+
       // For each vertex, compute spoke-based r and draw line to centroid
       for (const v of cell.vertices) {
         const sx = v.x - cx_cell;
@@ -986,11 +1041,11 @@ export function VoronoiTerrainMesh({
 
         let tBank: number, tFloor: number;
         if (perpComponent > 0.01) {
-          tBank = Math.min((W_O / 2) / perpComponent, 0.8);
-          tFloor = Math.min((W_I / 2) / perpComponent, 0.6);
+          tBank = Math.min((W_O_r / 2) / perpComponent, 0.8);
+          tFloor = Math.min((W_I_r / 2) / perpComponent, 0.6);
         } else {
-          tBank = Math.min(W_O / 2, spokeLen * 0.8) / spokeLen;
-          tFloor = Math.min(W_I / 2, spokeLen * 0.6) / spokeLen;
+          tBank = Math.min(W_O_r / 2, spokeLen * 0.8) / spokeLen;
+          tFloor = Math.min(W_I_r / 2, spokeLen * 0.6) / spokeLen;
         }
 
         const bx = cx_cell + sx * tBank;

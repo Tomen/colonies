@@ -9,8 +9,9 @@ interface CellClickHandlerProps {
 }
 
 /**
- * Invisible mesh that handles click-to-path interactions.
- * Raycasts to find which cell was clicked and manages pathfinding state.
+ * Invisible mesh that handles click interactions.
+ * When pathfinding is enabled: two-click path finding
+ * When pathfinding is disabled: single-click cell selection for debug
  */
 export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
   const pathfindingEnabled = useSimulationStore((s) => s.pathfindingEnabled);
@@ -18,8 +19,11 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
   const setPathfindingStart = useSimulationStore((s) => s.setPathfindingStart);
   const setCurrentPath = useSimulationStore((s) => s.setCurrentPath);
   const findPath = useSimulationStore((s) => s.findPath);
+  const setSelectedCell = useSimulationStore((s) => s.setSelectedCell);
 
-  // Find which cell contains a point (2D, map coordinates)
+  // Find the cell nearest to a point (2D, map coordinates)
+  // Uses centroid distance instead of point-in-polygon because the click
+  // plane is flat while terrain has elevation, causing offset issues
   const findCellAtPoint = useCallback(
     (x: number, y: number): VoronoiCell | null => {
       // Quick bounds check
@@ -27,13 +31,21 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
         return null;
       }
 
-      // Check each cell (could be optimized with spatial index)
+      // Find nearest cell by centroid distance
+      let nearestCell: VoronoiCell | null = null;
+      let nearestDist = Infinity;
+
       for (const cell of cells) {
-        if (pointInPolygon(x, y, cell.vertices)) {
-          return cell;
+        const dx = cell.centroid.x - x;
+        const dy = cell.centroid.y - y;
+        const dist = dx * dx + dy * dy;
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestCell = cell;
         }
       }
-      return null;
+
+      return nearestCell;
     },
     [cells, bounds]
   );
@@ -41,8 +53,6 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
   // Handle click on the terrain
   const handleClick = useCallback(
     (event: THREE.Event) => {
-      if (!pathfindingEnabled) return;
-
       // Get intersection point
       const intersection = (event as THREE.Event & { point?: THREE.Vector3 }).point;
       if (!intersection) return;
@@ -56,17 +66,22 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
       const cell = findCellAtPoint(mapX, mapY);
       if (!cell) return;
 
-      // Only allow clicking on land cells
-      if (!cell.isLand) return;
+      if (pathfindingEnabled) {
+        // Pathfinding mode: two-click path finding (land cells only)
+        if (!cell.isLand) return;
 
-      if (pathfindingStart === null) {
-        // First click - set start
-        setPathfindingStart(cell.id);
-        setCurrentPath(null);
+        if (pathfindingStart === null) {
+          // First click - set start
+          setPathfindingStart(cell.id);
+          setCurrentPath(null);
+        } else {
+          // Second click - find path
+          findPath(pathfindingStart, cell.id);
+          setPathfindingStart(null);
+        }
       } else {
-        // Second click - find path
-        findPath(pathfindingStart, cell.id);
-        setPathfindingStart(null);
+        // Selection mode: select cell for debug info
+        setSelectedCell(cell.id);
       }
     },
     [
@@ -76,6 +91,7 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
       setPathfindingStart,
       setCurrentPath,
       findPath,
+      setSelectedCell,
     ]
   );
 
@@ -83,10 +99,6 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
   const geometry = useMemo(() => {
     return new THREE.PlaneGeometry(bounds.width, bounds.height);
   }, [bounds]);
-
-  if (!pathfindingEnabled) {
-    return null;
-  }
 
   return (
     <mesh
@@ -98,29 +110,4 @@ export function CellClickHandler({ cells, bounds }: CellClickHandlerProps) {
       <meshBasicMaterial visible={false} />
     </mesh>
   );
-}
-
-/**
- * Point-in-polygon test using ray casting algorithm
- */
-function pointInPolygon(
-  x: number,
-  y: number,
-  vertices: Array<{ x: number; y: number }>
-): boolean {
-  let inside = false;
-  const n = vertices.length;
-
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = vertices[i].x;
-    const yi = vertices[i].y;
-    const xj = vertices[j].x;
-    const yj = vertices[j].y;
-
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
-      inside = !inside;
-    }
-  }
-
-  return inside;
 }

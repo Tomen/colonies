@@ -300,3 +300,56 @@ button.secondary:hover:not(:disabled) {
 .reset-camera-btn:hover:not(:disabled) {
   background: #555;
 }
+
+/* Cell Debug Panel */
+.cell-debug-panel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(26, 26, 46, 0.95);
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  min-width: 200px;
+  z-index: 100;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cell-debug-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.cell-debug-panel .panel-header button {
+  width: auto;
+  padding: 2px 8px;
+  background: transparent;
+  color: #888;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.cell-debug-panel .panel-header button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cell-debug-panel .debug-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 12px;
+  font-size: 11px;
+}
+
+.cell-debug-panel .debug-grid span:nth-child(odd) {
+  color: #888;
+}
+
+.cell-debug-panel .debug-grid span:nth-child(even) {
+  color: #fff;
+}

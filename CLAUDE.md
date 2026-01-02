@@ -86,6 +86,7 @@ React + Three.js interactive viewer:
   - [Physical Layer](docs/world/01_physical_layer/README.md)
   - [Network Layer](docs/world/02_network_layer/README.md)
 - **Frontend**: [docs/frontend/](docs/frontend/)
+  - [River Rendering](docs/frontend/river-rendering.md)
 
 ## Implementation Status
 
@@ -96,6 +97,7 @@ React + Three.js interactive viewer:
 | Network Layer | Complete | [docs/world/02_network_layer/](docs/world/02_network_layer/README.md) |
 | Settlements | Basic | [docs/world/world.md#settlements--urbanization](docs/world/world.md) |
 | Frontend Viewer | Complete | [docs/frontend/](docs/frontend/README.md) |
+| River Rendering | Complete | [docs/frontend/river-rendering.md](docs/frontend/river-rendering.md) |
 | Economy/Industry | Pending | [docs/world/todo/04_industries.md](docs/world/todo/04_industries.md) |
 
 ## Definition of Done

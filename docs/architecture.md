@@ -71,6 +71,7 @@ See [frontend/](frontend/) for detailed documentation:
 |-----------|-------------|
 | Web Worker | Runs simulation in background thread |
 | Three.js Scene | Height-displaced terrain mesh with shaders |
+| River Rendering | V-shaped carved channels ([docs](frontend/river-rendering.md)) |
 | Zustand Store | State management and worker communication |
 | React UI | Control panel, status bar, layer toggles |
 
