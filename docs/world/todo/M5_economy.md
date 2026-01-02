@@ -1,4 +1,4 @@
-# Milestone 6: Economy, Production, and Trade
+# Milestone 5: Economy & Resources
 
 Resource production, consumption, industry siting, and trade routing.
 
@@ -6,7 +6,7 @@ Resource production, consumption, industry siting, and trade routing.
 
 This milestone implements the economic layer: parcels produce resources, settlements consume them, and trade routes emerge from accumulated traffic. Industries spawn where inputs and power are available.
 
-**Dependencies:** M3 Network Layer, M4 Simulation Engine, M5 Agent Model
+**Dependencies:** M3 Network Layer, M4 Settlements
 
 **Provides:** Resource production, trade routing, industry siting
 

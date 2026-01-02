@@ -10,10 +10,8 @@ Project progress and implementation milestones.
 |-------|--------|---------------|
 | Physical Layer | Complete | [world/01_physical_layer/](world/01_physical_layer/README.md) |
 | Cadastral Layer | Complete | [world/world.md#cadastral-layer](world/world.md) |
-| Network Layer | Designed | [world/02_network_layer/](world/02_network_layer/README.md) |
+| Network Layer | Complete | [world/02_network_layer/](world/02_network_layer/README.md) |
 | Settlement Seeding | Complete | [world/world.md#settlements--urbanization](world/world.md) |
-
-**Note:** Network Layer has documentation but `TransportNetwork` class is not yet implemented.
 
 ### Frontend (packages/frontend)
 
@@ -24,6 +22,7 @@ Project progress and implementation milestones.
 | Web Worker | Complete | Background simulation |
 | Control Panel | Complete | Config sliders, generate button |
 | Layer Toggles | Complete | Show/hide terrain, rivers, parcels, settlements |
+| Network Visualization | Complete | Cost heatmap, settlement paths, click-to-path |
 
 ## Living World Implementation
 
@@ -33,12 +32,11 @@ The next major phase: transform static terrain into a living simulation.
 
 | Milestone | Todo File | Status | Description |
 |-----------|-----------|--------|-------------|
-| M3 | [M3_network.md](world/todo/M3_network.md) | Pending | A* pathfinding, road emergence, river crossings |
-| M4 | [M4_simulation.md](world/todo/M4_simulation.md) | Pending | Monthly tick loop, phase ordering, snapshots |
-| M5 | [M5_agents.md](world/todo/M5_agents.md) | Pending | Agent model, population dynamics, migration |
-| M6 | [M6_economy.md](world/todo/M6_economy.md) | Pending | Production, trade routing, industries |
-| M7 | [M7_polish.md](world/todo/M7_polish.md) | Pending | Time-lapse animation, GIF/video export |
-| M8 | [M8_frontend.md](world/todo/M8_frontend.md) | Pending | UI time controls, info panels |
+| M3 | [02_network_layer/](world/02_network_layer/README.md) | Complete | A* pathfinding, road emergence, river crossings |
+| M4 | [M4_settlements.md](world/todo/M4_settlements.md) | Pending | Aggregate population, growth, migration |
+| M5 | [M5_economy.md](world/todo/M5_economy.md) | Pending | Production, trade routing, industries |
+| M6 | [M6_agents.md](world/todo/M6_agents.md) | Pending | Individual agents, households, companies |
+| M7 | [M7_simulation.md](world/todo/M7_simulation.md) | Pending | Monthly tick loop, phase ordering, snapshots |
 
 ### Key Decisions Locked In
 
@@ -47,7 +45,7 @@ The next major phase: transform static terrain into a living simulation.
 | Edge representation | Cell-to-cell adjacency |
 | Edge initialization | Eager (pre-create all ~30K edges at world gen) |
 | Tick granularity | Monthly (12 ticks per year) |
-| Phase implementation | Minimal stubs in M4, filled in by M5/M6 |
+| Population model | Aggregate first (M4), individual agents later (M6) |
 | Resource model | Storage + spoilage |
 | New settlements | Pioneer multi-stage founding |
 | Trade model | Merchant guilds with emergent patterns |
@@ -55,15 +53,12 @@ The next major phase: transform static terrain into a living simulation.
 ### Implementation Dependencies
 
 ```
-M3_network ────────────────────┐
-                               │
-M4_simulation ─────────────────┼──► M5_agents ──► M6_economy
-                               │
-                               ▼
-                          M7_polish
-                               │
-                               ▼
-                          M8_frontend
+M3 (Network) ─────────────┐
+                          │
+M4 (Settlements) ─────────┼──► M5 (Economy) ──► M6 (Agents)
+                          │
+                          ▼
+                     M7 (Simulation Engine)
 ```
 
 ## Milestones
@@ -74,12 +69,11 @@ High-level feature milestones from the [world design](world/world.md):
 |---|-----------|--------|--------------|
 | M1 | Physical world | Complete | - |
 | M2 | Parcels & claims | Complete | M1 |
-| M3 | Movement network | **Implementation Needed** | M1 |
-| M4 | Simulation engine | Pending | M3 |
-| M5 | Settlements & growth | Pending | M2, M4 |
-| M6 | Economy & trade | Pending | M3, M5 |
-| M7 | Polish & export | Pending | M6 |
-| M8 | Frontend time controls | Pending | M4 |
+| M3 | Movement network | Complete | M1 |
+| M4 | Settlements & Urbanization | Pending | M3 |
+| M5 | Economy & Resources | Pending | M3, M4 |
+| M6 | Agents & Governance | Pending | M4, M5 |
+| M7 | Simulation Engine | Pending | M4, M5, M6 |
 
 ### Milestone Details
 
@@ -99,34 +93,31 @@ High-level feature milestones from the [world design](world/world.md):
 - Usage tracking → road upgrades (trail→road→turnpike)
 - River crossing detection (ford→ferry→bridge)
 
-**M4 Simulation engine** - time system
-- Monthly tick loop
-- Phase ordering (population → production → trade → growth)
-- State snapshots for time-lapse
-- Deterministic simulation
-
-**M5 Settlements & growth** - population dynamics
+**M4 Settlements & Urbanization** - aggregate population dynamics
 - Carrying capacity model
-- Birth/death/migration
+- Birth/death rates as aggregate numbers
+- Migration between settlements
 - Settlement expansion triggers
-- Port detection
+- Pioneer founding of new settlements
 
-**M6 Economy & trade** - resources and routing
+**M5 Economy & Resources** - production and trade
 - Resource production (food, timber, etc.)
 - Consumption per capita
 - Trade route calculation via A*
 - Desire-line emergence
+- Industry siting
 
-**M7 Polish & export** - visualization
-- Time-lapse animation
-- Frame capture
-- GIF/video export
+**M6 Agents & Governance** - individual agent model
+- Individual persons with traits
+- Explicit household membership
+- Company formation and employment
+- Individual decision-making
 
-**M8 Frontend time controls** - UI
-- Play/pause/speed controls
-- Year display and timeline
-- Settlement info panel
-- New layer toggles (roads, trade routes)
+**M7 Simulation Engine** - time system
+- Monthly tick loop
+- Phase ordering (population → production → trade → growth)
+- State snapshots for time-lapse
+- Deterministic simulation
 
 ## Emergent Patterns (Validation)
 

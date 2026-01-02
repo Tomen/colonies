@@ -1,4 +1,4 @@
-# Milestone 4: Simulation Engine
+# Milestone 7: Simulation Engine
 
 Central coordinator for the time-stepping simulation loop.
 
@@ -6,7 +6,7 @@ Central coordinator for the time-stepping simulation loop.
 
 The `SimulationEngine` manages time advancement, coordinating all subsystems (network, settlements, economy) through a monthly tick cycle. Each tick executes phases in a fixed order to ensure deterministic results.
 
-**Dependencies:** M3 Network Layer, Cadastral Layer, Settlements
+**Dependencies:** M3 Network Layer, M4 Settlements, M5 Economy, M6 Agents
 
 **Provides:** Time advancement for all other systems, state snapshots for visualization
 

@@ -103,6 +103,56 @@ function buildVertexElevationMap(cells: VoronoiCell[]): Map<string, number> {
   return vertexElevation;
 }
 
+// Pre-compute river surface heights for vertices (average carve depth of adjacent river cells)
+function buildVertexRiverHeightMap(cells: VoronoiCell[], vertexElevations: Map<string, number>): Map<string, number> {
+  // Build map of vertex -> all touching cell IDs
+  const vertexCells = new Map<string, number[]>();
+
+  for (const cell of cells) {
+    for (const v of cell.vertices) {
+      const key = vertexKey(v.x, v.y);
+      if (!vertexCells.has(key)) {
+        vertexCells.set(key, []);
+      }
+      vertexCells.get(key)!.push(cell.id);
+    }
+  }
+
+  // Compute river surface height for each vertex
+  const vertexRiverHeight = new Map<string, number>();
+
+  for (const [key, cellIds] of vertexCells) {
+    const baseElevation = vertexElevations.get(key) ?? 0;
+
+    // Find average carve depth of adjacent river cells
+    let carveDepthSum = 0;
+    let riverCount = 0;
+
+    for (const id of cellIds) {
+      const cell = cells[id];
+      if (cell && cell.isLand && cell.flowAccumulation >= RIVER_THRESHOLD) {
+        const carveDepth = Math.min(
+          Math.log(cell.flowAccumulation / RIVER_THRESHOLD + 1) * 8,
+          cell.elevation * 0.5
+        );
+        carveDepthSum += carveDepth;
+        riverCount++;
+      }
+    }
+
+    if (riverCount > 0) {
+      const avgCarveDepth = carveDepthSum / riverCount;
+      // River surface at 20% of carve depth below original vertex elevation
+      vertexRiverHeight.set(key, baseElevation - 0.2 * avgCarveDepth);
+    } else {
+      // Non-river vertex: use base elevation
+      vertexRiverHeight.set(key, baseElevation);
+    }
+  }
+
+  return vertexRiverHeight;
+}
+
 // Find the neighbor cell that shares an edge (both vertices)
 function findNeighborForEdge(
   cell: VoronoiCell,
@@ -149,6 +199,7 @@ function buildRiverCellGeometry(
   terrainColor: THREE.Color,
   _riverColor: THREE.Color, // No longer used - banks use RIVER_BANK_COLOR
   vertexElevations: Map<string, number> | null,
+  vertexRiverHeights: Map<string, number> | null,
   positions: number[],
   colors: number[],
   normals: number[],
@@ -456,6 +507,39 @@ function buildRiverCellGeometry(
     addTriangle(pB0, pF1, pF0, bankColor);        // Bank slope 2
     addTriangle(pF0, pF1, pC, floorColor);        // Floor
   }
+
+  // === River polygon: cell polygon using pre-computed river surface heights ===
+  const carveDepth = cell.elevation - carvedElevation;
+  const riverColor = debugMode ? RIVER_COLOR : RIVER_COLOR;
+
+  // Centroid height: use cell's own carve depth for the center
+  const yCenterRiver = elevationScale > 0
+    ? (cell.elevation - 0.2 * carveDepth) * elevationScale
+    : flatHeight;
+
+  for (let i = 0; i < cell.vertices.length; i++) {
+    const v0 = cell.vertices[i];
+    const v1 = cell.vertices[(i + 1) % cell.vertices.length];
+
+    const x0 = v0.x - bounds.width / 2;
+    const z0 = v0.y - bounds.height / 2;
+    const x1 = v1.x - bounds.width / 2;
+    const z1 = v1.y - bounds.height / 2;
+
+    // Use pre-computed river surface heights (consistent across cells)
+    const yV0_river = vertexRiverHeights
+      ? (vertexRiverHeights.get(vertexKey(v0.x, v0.y)) ?? cell.elevation) * elevationScale
+      : flatHeight;
+    const yV1_river = vertexRiverHeights
+      ? (vertexRiverHeights.get(vertexKey(v1.x, v1.y)) ?? cell.elevation) * elevationScale
+      : flatHeight;
+
+    const pC_river = { x: cxW, y: yCenterRiver, z: czW };
+    const pV0_river = { x: x0, y: yV0_river, z: z0 };
+    const pV1_river = { x: x1, y: yV1_river, z: z1 };
+
+    addTriangle(pC_river, pV0_river, pV1_river, riverColor);
+  }
 }
 
 export function VoronoiTerrainMesh({
@@ -477,6 +561,11 @@ export function VoronoiTerrainMesh({
 
     // Pre-compute vertex elevations (no river carving at vertices)
     const vertexElevations = useHeight ? buildVertexElevationMap(cells) : null;
+
+    // Pre-compute river surface heights for vertices (consistent across cells)
+    const vertexRiverHeights = useHeight && vertexElevations
+      ? buildVertexRiverHeightMap(cells, vertexElevations)
+      : null;
 
     // Helper to get vertex Y coordinate
     const getVertexY = (x: number, y: number, fallback: number): number => {
@@ -520,6 +609,7 @@ export function VoronoiTerrainMesh({
           terrainColor,
           riverColor,
           vertexElevations,
+          vertexRiverHeights,
           positions,
           colors,
           normals,
@@ -818,81 +908,8 @@ export function VoronoiTerrainMesh({
           // f1 -> e
           crossingLinePositions.push(f1xW, floorY, f1zW, crossXW, floorY, crossZW);
 
-          // === River lines: r points at 0.8 from f to b, draw r -> c at r's height ===
-          // Centroid in world coords
-          const cxW = cell.centroid.x - bounds.width / 2;
-          const czW = cell.centroid.y - bounds.height / 2;
-
-          // Cell's floor and bank heights (for spoke-based points)
-          const cellFloorY = cellCarvedY;
-          const cellBankY2 = useHeight ? cell.elevation * 0.5 : flatHeight;
-
-          // Spoke-based r points (using cell's bankPoints/floorPoints)
-          // Find spoke-based f and b for v0 and v1
-          let spokeIdx0 = -1;
-          let spokeIdx1 = -1;
-          for (let vi = 0; vi < cell.vertices.length; vi++) {
-            const v = cell.vertices[vi];
-            if (Math.abs(v.x - sharedV0.x) < eps && Math.abs(v.y - sharedV0.y) < eps) spokeIdx0 = vi;
-            if (Math.abs(v.x - sharedV1.x) < eps && Math.abs(v.y - sharedV1.y) < eps) spokeIdx1 = vi;
-          }
-
-          if (spokeIdx0 >= 0 && spokeIdx1 >= 0) {
-            // Compute spoke-based b/f using flow-perpendicular calculation (matching triangle code)
-            const cx_cell = cell.centroid.x;
-            const cy_cell = cell.centroid.y;
-
-            // Flow direction for this cell
-            let flowDirX = 0, flowDirY = 1;
-            if (cell.flowsTo !== null) {
-              const downstream = cells[cell.flowsTo];
-              if (downstream) {
-                const dxf = downstream.centroid.x - cx_cell;
-                const dyf = downstream.centroid.y - cy_cell;
-                const lenf = Math.sqrt(dxf * dxf + dyf * dyf);
-                if (lenf > 0) { flowDirX = dxf / lenf; flowDirY = dyf / lenf; }
-              }
-            }
-            const flowPerpX = -flowDirY;
-            const flowPerpY = flowDirX;
-
-            // Helper to compute spoke-based r point
-            const computeSpokeR = (vx: number, vy: number) => {
-              const sx = vx - cx_cell;
-              const sy = vy - cy_cell;
-              const spokeLen = Math.sqrt(sx * sx + sy * sy);
-              const perpComponent = Math.abs(sx * flowPerpX + sy * flowPerpY);
-
-              let tBank: number, tFloor: number;
-              if (perpComponent > 0.01 && spokeLen > 0) {
-                tBank = Math.min((W_O / 2) / perpComponent, 0.8);
-                tFloor = Math.min((W_I / 2) / perpComponent, 0.6);
-              } else {
-                tBank = Math.min(W_O / 2, spokeLen * 0.8) / spokeLen;
-                tFloor = Math.min(W_I / 2, spokeLen * 0.6) / spokeLen;
-              }
-
-              const bx = cx_cell + sx * tBank;
-              const by = cy_cell + sy * tBank;
-              const fx = cx_cell + sx * tFloor;
-              const fy = cy_cell + sy * tFloor;
-
-              // r at 0.8 from f to b
-              const rx = fx + 0.8 * (bx - fx);
-              const ry = fy + 0.8 * (by - fy);
-              return { x: rx - bounds.width / 2, z: ry - bounds.height / 2 };
-            };
-
-            const r_s0 = computeSpokeR(sharedV0.x, sharedV0.y);
-            const r_s1 = computeSpokeR(sharedV1.x, sharedV1.y);
-            const r_s_Y = cellFloorY + 0.8 * (cellBankY2 - cellFloorY);
-
-            // Draw spoke-based r -> c at r's height
-            crossingLinePositions.push(r_s0.x, r_s_Y, r_s0.z, cxW, r_s_Y, czW);
-            crossingLinePositions.push(r_s1.x, r_s_Y, r_s1.z, cxW, r_s_Y, czW);
-          }
-
-          // Edge-based r points (0.8 from f to b along edge)
+          // === Edge-based r lines: r points at 0.8 from f to b along the shared edge ===
+          // (Spoke-based r lines are handled by the comprehensive loop below)
           const r_e0_xW = f0xW + 0.8 * (b0xW - f0xW);
           const r_e0_zW = f0zW + 0.8 * (b0zW - f0zW);
           const r_e0_Y = floorY + 0.8 * (bankY - floorY);
@@ -901,10 +918,94 @@ export function VoronoiTerrainMesh({
           const r_e1_zW = f1zW + 0.8 * (b1zW - f1zW);
           const r_e1_Y = floorY + 0.8 * (bankY - floorY);
 
-          // Draw edge-based r -> c at r's height
-          crossingLinePositions.push(r_e0_xW, r_e0_Y, r_e0_zW, cxW, r_e0_Y, czW);
-          crossingLinePositions.push(r_e1_xW, r_e1_Y, r_e1_zW, cxW, r_e1_Y, czW);
+          // River line for edge-based projection
+          const riverLineStartE = { x: cell.centroid.x - bounds.width / 2, z: cell.centroid.y - bounds.height / 2 };
+          const riverLineEndE = { x: neighbor.centroid.x - bounds.width / 2, z: neighbor.centroid.y - bounds.height / 2 };
+          const riverDxE = riverLineEndE.x - riverLineStartE.x;
+          const riverDzE = riverLineEndE.z - riverLineStartE.z;
+          const riverLenSqE = riverDxE * riverDxE + riverDzE * riverDzE;
+
+          const projectOntoRiverLineE = (rx: number, rz: number) => {
+            const toRx = rx - riverLineStartE.x;
+            const toRz = rz - riverLineStartE.z;
+            if (riverLenSqE < 0.001) return { x: riverLineStartE.x, z: riverLineStartE.z };
+            const t = Math.max(0, Math.min(1, (toRx * riverDxE + toRz * riverDzE) / riverLenSqE));
+            return { x: riverLineStartE.x + t * riverDxE, z: riverLineStartE.z + t * riverDzE };
+          };
+
+          const proj_e0 = projectOntoRiverLineE(r_e0_xW, r_e0_zW);
+          const proj_e1 = projectOntoRiverLineE(r_e1_xW, r_e1_zW);
+
+          // Draw edge-based r -> projection on river line, at r's height
+          crossingLinePositions.push(r_e0_xW, r_e0_Y, r_e0_zW, proj_e0.x, r_e0_Y, proj_e0.z);
+          crossingLinePositions.push(r_e1_xW, r_e1_Y, r_e1_zW, proj_e1.x, r_e1_Y, proj_e1.z);
         }
+      }
+    }
+
+    // === Draw r->river lines for ALL spokes of ALL river cells ===
+    for (const cell of cells) {
+      if (!cell.isLand || cell.flowAccumulation < RIVER_THRESHOLD) continue;
+
+      const cx_cell = cell.centroid.x;
+      const cy_cell = cell.centroid.y;
+      const cxW = cx_cell - bounds.width / 2;
+      const czW = cy_cell - bounds.height / 2;
+
+      // Cell heights
+      const carveDepth = Math.min(
+        Math.log(cell.flowAccumulation / RIVER_THRESHOLD + 1) * 8,
+        cell.elevation * 0.5
+      );
+      const cellFloorY = useHeight ? (cell.elevation - carveDepth) * elevationScale : flatHeight;
+      const cellBankY = useHeight ? cell.elevation * 0.5 : flatHeight;
+      const r_Y = cellFloorY + 0.8 * (cellBankY - cellFloorY);
+
+      // Flow direction (for perpendicular distance calculation)
+      let flowDirX = 0, flowDirY = 1;
+      if (cell.flowsTo !== null) {
+        const downstream = cells[cell.flowsTo];
+        if (downstream) {
+          const dxf = downstream.centroid.x - cx_cell;
+          const dyf = downstream.centroid.y - cy_cell;
+          const lenf = Math.sqrt(dxf * dxf + dyf * dyf);
+          if (lenf > 0) { flowDirX = dxf / lenf; flowDirY = dyf / lenf; }
+        }
+      }
+      const flowPerpX = -flowDirY;
+      const flowPerpY = flowDirX;
+
+      // For each vertex, compute spoke-based r and draw line to centroid
+      for (const v of cell.vertices) {
+        const sx = v.x - cx_cell;
+        const sy = v.y - cy_cell;
+        const spokeLen = Math.sqrt(sx * sx + sy * sy);
+        if (spokeLen < 0.01) continue;
+
+        const perpComponent = Math.abs(sx * flowPerpX + sy * flowPerpY);
+
+        let tBank: number, tFloor: number;
+        if (perpComponent > 0.01) {
+          tBank = Math.min((W_O / 2) / perpComponent, 0.8);
+          tFloor = Math.min((W_I / 2) / perpComponent, 0.6);
+        } else {
+          tBank = Math.min(W_O / 2, spokeLen * 0.8) / spokeLen;
+          tFloor = Math.min(W_I / 2, spokeLen * 0.6) / spokeLen;
+        }
+
+        const bx = cx_cell + sx * tBank;
+        const by = cy_cell + sy * tBank;
+        const fx = cx_cell + sx * tFloor;
+        const fy = cy_cell + sy * tFloor;
+
+        // r at 0.8 from f to b
+        const rx = fx + 0.8 * (bx - fx);
+        const ry = fy + 0.8 * (by - fy);
+        const rxW = rx - bounds.width / 2;
+        const rzW = ry - bounds.height / 2;
+
+        // Draw r -> c (centroid) at r's height
+        crossingLinePositions.push(rxW, r_Y, rzW, cxW, r_Y, czW);
       }
     }
 

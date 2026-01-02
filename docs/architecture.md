@@ -90,6 +90,7 @@ In `@colonies/core`:
 
 - **SeededRNG** - Deterministic random number generator
 - **VoronoiWorldGenerator** - Voronoi terrain with Poisson disk sampling
+- **TransportNetwork** - A* pathfinding, edge costs, road upgrades
 - **CadastralManager** - Parcel subdivision and land use
 - **SettlementManager** - Village seeding and expansion
 

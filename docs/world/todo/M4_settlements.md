@@ -1,12 +1,12 @@
-# Milestone 5: Agent Model and Population Dynamics
+# Milestone 4: Settlements & Urbanization
 
-Agent-based simulation of population growth, migration, and settlement expansion.
+Aggregate population model with settlement growth, migration, and expansion.
 
 ## Overview
 
-This milestone introduces the agent layer that drives the simulation. Agents (individuals, households, companies, settlements) make decisions about migration, land claims, and resource allocation.
+This milestone implements aggregate population dynamics. Population is tracked as numbers per settlement (not individual agents). Settlements grow, expand territory, and migrants move between them based on carrying capacity.
 
-**Dependencies:** M3 Network Layer, M4 Simulation Engine
+**Dependencies:** M3 Network Layer
 
 **Provides:** Population dynamics, migration, land expansion, settlement growth
 
