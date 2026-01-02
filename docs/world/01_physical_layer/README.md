@@ -2,100 +2,194 @@
 
 The physical layer generates the foundational terrain, hydrology, and environmental data for the simulation.
 
-For detailed terrain algorithm documentation, see [terrain-generation.md](terrain-generation.md).
+## Documentation
+
+- [voronoi-generation.md](voronoi-generation.md) - Voronoi mesh algorithm (default)
+- [terrain-generation.md](terrain-generation.md) - Grid-based terrain algorithm (legacy)
+- [rivers.md](rivers.md) - River generation and valley carving
+- [distance-fields.md](distance-fields.md) - Distance field computation techniques
 
 ## Overview
 
-This layer creates a 10×10 km terrain grid (at 10m resolution) that simulates an American East Coast-like landscape with:
-- Coastal plains transitioning to inland ridge belts
-- Realistic river networks draining to the ocean
-- Moisture distribution for ecosystem modeling
-- Harbor suitability scoring for port placement
+This layer creates terrain that simulates a natural single-island landmass with:
+
+- **Single island generation**: Solid landmass with irregular coastline (no lagoons)
+- **Mapgen4-style elevation**: Dual hills+mountains system for natural terrain
+- **Voronoi mesh**: ~10K polygonal cells for efficient pathfinding
+- **Flow-based rivers**: Rivers determined by flow accumulation threshold
+- **Deterministic output**: Same seed produces identical terrain
+
+## Algorithm Approaches
+
+The physical layer supports multiple terrain generation algorithms:
+
+| Algorithm | Status | Documentation | Best For |
+|-----------|--------|---------------|----------|
+| **Voronoi** | Default | [voronoi-generation.md](voronoi-generation.md) | Pathfinding, parcels, settlements |
+| **Grid** | Legacy | [terrain-generation.md](terrain-generation.md) | Hydrology, GPU rendering |
+
+### Voronoi Mesh Generation (Default)
+
+Uses Lloyd-relaxed Voronoi tessellation with d3-delaunay. See [voronoi-generation.md](voronoi-generation.md).
+
+**Key features:**
+- Single island with irregular coastline (no internal water pockets)
+- Mapgen4-style elevation: mountains + hills blended by distance from coast
+- Configurable coastal flatness via `elevationBlendPower`
+
+**Strengths:**
+- Organic visual appearance (~10K irregular cells)
+- Fast A* on small graph
+- Natural parcel boundaries
+
+**Trade-offs:**
+- Flow routing on irregular mesh is complex
+- Depression handling requires special algorithms
+- Gradient fields are noisier
+
+### Grid-Based Generation (Legacy)
+
+Uses distance-field approach on regular 2D array. See [terrain-generation.md](terrain-generation.md).
+
+**Strengths:**
+- Robust D8 hydrology
+- Direct GPU texture mapping
+- O(1) elevation sampling
+
+**Trade-offs:**
+- A* pathfinding on 1M cells is expensive
+- Roads appear pixelated
+- Land parcels feel artificial
+
+### Algorithm Selection
+
+The UI provides a pill toggle for selecting generation algorithm. Both produce compatible terrain output via discriminated union types.
 
 ## Classes
 
-- **WorldGenerator** (`src/worldgen.ts`): Main terrain generation class
-- **SeededRNG** (`src/rng.ts`): Linear congruential generator for deterministic randomness
-- **ConfigLoader** (`src/config.ts`): JSON-based configuration with validation and defaults
-- **PngExporter** (`src/png_exporter.ts`): Visualization output for terrain data
+- **createWorldGenerator** (`packages/core/src/generator-factory.ts`): Factory function for selecting algorithm
+- **VoronoiWorldGenerator** (`packages/core/src/voronoi-worldgen.ts`): Voronoi-based terrain generation (default)
+- **WorldGenerator** (`packages/core/src/worldgen.ts`): Grid-based terrain generation (legacy)
+- **SeededRNG** (`packages/core/src/rng.ts`): Deterministic randomness
 
 ## Key Algorithms
 
-### Terrain Generation
+### Single Island Mask (Voronoi)
 
-Height map generation uses multiple techniques:
-1. **Coastal-to-ridge transition**: Distance from coast controls base elevation
-2. **Simplex noise overlay**: Adds natural terrain variation (50m amplitude)
-3. **Ridge orientation**: Cosine function with configurable angle creates directional ridges
-4. **Ocean depth**: Negative elevation in coastal zones simulates seafloor
+Land/water boundary using radius + coastline noise:
 
-### D8 Flow Direction
+1. Compute base radius from `landFraction` parameter
+2. Generate angle-based noise for coastline variation
+3. Cell is land if: `distFromCenter < baseRadius + coastlineNoise`
 
-Standard 8-direction steepest descent algorithm:
-- Each cell points to its lowest neighbor
-- Handles all 8 cardinal and diagonal directions
-- Ensures water flows downhill toward map boundaries
+**Key design:** Noise only affects the coastline edge, not interior. This prevents lagoons.
 
-### Flow Accumulation
+### Mapgen4-style Elevation (Voronoi)
 
-Topological sort from high to low elevation:
-1. Sort all cells by elevation (highest first)
-2. For each cell, add its flow to the downstream neighbor
-3. Result: cells in river channels have high accumulated flow
-4. `riverDensity` parameter (0.0-1.0) scales precipitation per cell
+Dual hills+mountains system inspired by [mapgen4](https://www.redblobgames.com/maps/mapgen4/):
 
-### Harbor Scoring
+1. **BFS from ocean**: Compute distance from coast for each cell
+2. **Select peaks**: Pick N inland cells with highest coast distance, spread apart
+3. **BFS from peaks**: Compute distance from mountains
+4. **Mountain elevation**: Use `B/(A+B)` formula (high near peaks, low near coast)
+5. **Hill elevation**: Low-amplitude fractal noise
+6. **Blend**: Mountains dominate inland, hills dominate near coast
 
-Multi-criteria optimization for port placement:
-- **Water depth**: Deeper water scores higher
-- **Shelter**: Count of adjacent land cells
-- **River access**: Bonus for high flow accumulation nearby
-- Combined weighted scoring selects optimal harbor location
+### Flow Routing & Rivers (Voronoi)
 
-### Moisture Calculation
-
-Multi-factor model normalized to 0-1 scale:
-- **Elevation effect**: Higher elevation = drier
-- **River proximity**: High flow accumulation = wetter
-- **Coastal effect**: Distance from ocean influences moisture
+1. Each land cell flows to lowest neighbor
+2. Sort cells high-to-low, accumulate flow downstream
+3. Edges with flow > `riverThreshold` become rivers
 
 ## Configuration Parameters
 
+### Island Shape
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| seed | 12345 | Random seed for deterministic generation |
-| mapSize | 1000 | Grid size (1000 = 10km at 10m resolution) |
-| ridgeOrientation | 45 | Ridge belt angle in degrees |
-| riverDensity | 0.5 | River network density (0.0-1.0) |
-| coastalPlainWidth | 0.3 | Fraction of map width for coastal plain |
-| ridgeHeight | 200 | Maximum elevation in meters |
-| noiseScale | 0.01 | Simplex noise frequency |
-| coastlineWaviness | 0.3 | Amplitude of coastline variation |
-| coastlineFrequency | 3 | Frequency of coastline waves |
-| noiseOctaves | 3 | Number of noise octaves |
-| noisePersistence | 0.5 | Noise amplitude falloff per octave |
-| ridgeVariation | 0.2 | Ridge height variation factor |
+| `landFraction` | 0.55 | Island size (0.3=small, 0.8=large) |
+| `islandNoiseScale` | 0.006 | Coastline noise frequency |
+| `islandNoiseOctaves` | 4 | Coastline complexity |
+
+### Elevation (Mapgen4-style)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `peakElevation` | 300 | Maximum elevation (meters) |
+| `mountainPeakCount` | 5 | Number of mountain peaks |
+| `hilliness` | 0.3 | Rolling terrain amount (0-1) |
+| `elevationBlendPower` | 2 | Coastal flatness (higher=flatter) |
+| `hillNoiseScale` | 0.008 | Hill noise frequency |
+| `hillNoiseAmplitude` | 0.4 | Hill noise strength |
+
+### Rivers
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `riverThreshold` | 50 | Min flow accumulation for river |
+| `moistureDiffusion` | 5 | Moisture diffusion iterations |
+
+### Mesh
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `voronoiCellCount` | 10000 | Number of Voronoi cells |
+| `voronoiRelaxation` | 2 | Lloyd relaxation passes |
 
 ## Data Structures
 
-### TerrainData
+### VoronoiTerrainData
 
 ```typescript
-interface TerrainData {
-  height: number[][];          // Elevation grid (negative = water)
-  flowAccumulation: number[][]; // Upstream cell count per cell
-  moisture: number[][];         // Moisture level 0-1
+interface VoronoiTerrainData {
+  type: 'voronoi';
+  cells: VoronoiCell[];
+  edges: VoronoiEdge[];
+  rivers: VoronoiEdge[];
+  bounds: { width: number; height: number };
+}
+
+interface VoronoiCell {
+  id: number;
+  centroid: Point;
+  vertices: Point[];
+  neighbors: number[];
+  isLand: boolean;
+  isCoast: boolean;
+  elevation: number;
+  moisture: number;
+  flowsTo: number | null;
+  flowAccumulation: number;
 }
 ```
 
-### WorldConfig
+### GridTerrainData (Legacy)
 
-See `src/types.ts` for the full interface definition with all configurable parameters.
+```typescript
+interface GridTerrainData {
+  type: 'grid';
+  height: number[][];
+  flowAccumulation: number[][];
+  moisture: number[][];
+  rivers?: River[];
+}
+```
 
-## Visual Outputs
+## Visual Outputs (CLI)
 
 | File | Description |
 |------|-------------|
-| `01_height_map.png` | Terrain elevation: blue = water, green = low land, brown = high land |
-| `02_flow_accumulation.png` | River flow intensity (log scale): dark→bright blue |
-| `03_moisture_map.png` | Soil moisture: brown = dry, green = wet |
+| `height_map.png` | Elevation: blue = water, green→brown = low→high |
+| `flow_accumulation.png` | River flow (log scale): dark→bright blue |
+| `moisture_map.png` | Soil moisture: brown = dry, green = wet |
+
+## Integration with Other Layers
+
+The physical layer provides foundation data for:
+
+| Layer | Data Used |
+|-------|-----------|
+| **Cadastral** | Cell boundaries for parcels, elevation for land value |
+| **Network** | Terrain slope for road costs, rivers for crossings |
+| **Economy** | River flow for mill sites, moisture for agriculture |
+| **Settlements** | Harbor scoring (coastal cells with river access) |

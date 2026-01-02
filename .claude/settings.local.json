@@ -31,7 +31,13 @@
       "Bash(pnpm test:*)",
       "Bash(pnpm --filter @colonies/cli build:*)",
       "WebSearch",
-      "WebFetch(domain:www.redblobgames.com)"
+      "WebFetch(domain:www.redblobgames.com)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(mkdir:*)",
+      "Bash(git mv:*)",
+      "Bash(move:*)",
+      "Bash(mv:*)"
     ],
     "deny": [],
     "ask": []

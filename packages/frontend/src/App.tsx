@@ -1,8 +1,9 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stats } from '@react-three/drei';
 import { useEffect } from 'react';
+import { MOUSE } from 'three';
 import { useSimulationStore } from './store/simulation';
-import { TerrainMesh } from './three/TerrainMesh';
+import { TerrainRenderer } from './three/TerrainRenderer';
 import { WaterPlane } from './three/WaterPlane';
 import { ControlPanel } from './components/ControlPanel';
 import { StatusBar } from './components/StatusBar';
@@ -26,13 +27,18 @@ export default function App() {
           <color attach="background" args={['#1a1a2e']} />
           <ambientLight intensity={0.4} />
           <directionalLight position={[100, 200, 100]} intensity={0.8} />
-          <TerrainMesh />
+          <TerrainRenderer />
           <WaterPlane />
           <OrbitControls
             target={[500, 0, 500]}
             maxPolarAngle={Math.PI / 2.1}
             minDistance={50}
             maxDistance={2000}
+            mouseButtons={{
+              LEFT: MOUSE.ROTATE,
+              MIDDLE: MOUSE.ROTATE,
+              RIGHT: MOUSE.PAN,
+            }}
           />
           {status === 'running' && <Stats />}
         </Canvas>

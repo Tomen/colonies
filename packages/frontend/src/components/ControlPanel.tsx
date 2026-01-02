@@ -1,3 +1,4 @@
+import type { GenerationAlgorithm } from '@colonies/shared';
 import { useSimulationStore } from '../store/simulation';
 
 export function ControlPanel() {
@@ -11,10 +12,39 @@ export function ControlPanel() {
   } = useSimulationStore();
 
   const isGenerating = status === 'generating';
+  const currentAlgorithm = config.generationAlgorithm ?? 'grid';
+
+  const handleAlgorithmChange = (algorithm: GenerationAlgorithm) => {
+    if (algorithm !== currentAlgorithm && !isGenerating) {
+      setConfig({ generationAlgorithm: algorithm });
+      // Auto-generate after a short delay to let state update
+      setTimeout(() => generateWorld(), 0);
+    }
+  };
 
   return (
     <div className="control-panel">
       <h2>World Generator</h2>
+
+      <div className="control-group">
+        <label>Algorithm</label>
+        <div className="pill-toggle">
+          <button
+            className={`pill-option ${currentAlgorithm === 'grid' ? 'active' : ''}`}
+            onClick={() => handleAlgorithmChange('grid')}
+            disabled={isGenerating}
+          >
+            Grid
+          </button>
+          <button
+            className={`pill-option ${currentAlgorithm === 'voronoi' ? 'active' : ''}`}
+            onClick={() => handleAlgorithmChange('voronoi')}
+            disabled={isGenerating}
+          >
+            Voronoi
+          </button>
+        </div>
+      </div>
 
       <div className="control-group">
         <label>Seed</label>
@@ -43,17 +73,66 @@ export function ControlPanel() {
       </div>
 
       <div className="control-group">
-        <label>Ridge Orientation</label>
+        <label>Land Fraction</label>
+        <div className="control-row">
+          <input
+            type="range"
+            min="0.3"
+            max="0.8"
+            step="0.05"
+            value={config.landFraction ?? 0.55}
+            onChange={(e) => setConfig({ landFraction: parseFloat(e.target.value) })}
+            disabled={isGenerating}
+          />
+          <span>{((config.landFraction ?? 0.55) * 100).toFixed(0)}%</span>
+        </div>
+      </div>
+
+      <div className="control-group">
+        <label>Peak Elevation</label>
+        <div className="control-row">
+          <input
+            type="range"
+            min="100"
+            max="500"
+            step="25"
+            value={config.peakElevation ?? 300}
+            onChange={(e) => setConfig({ peakElevation: parseInt(e.target.value) })}
+            disabled={isGenerating}
+          />
+          <span>{config.peakElevation ?? 300}m</span>
+        </div>
+      </div>
+
+      <div className="control-group">
+        <label>Hilliness</label>
         <div className="control-row">
           <input
             type="range"
             min="0"
-            max="90"
-            value={config.ridgeOrientation}
-            onChange={(e) => setConfig({ ridgeOrientation: parseInt(e.target.value) })}
+            max="1"
+            step="0.1"
+            value={config.hilliness ?? 0.3}
+            onChange={(e) => setConfig({ hilliness: parseFloat(e.target.value) })}
             disabled={isGenerating}
           />
-          <span>{config.ridgeOrientation}°</span>
+          <span>{((config.hilliness ?? 0.3) * 100).toFixed(0)}%</span>
+        </div>
+      </div>
+
+      <div className="control-group">
+        <label>Coastal Flatness</label>
+        <div className="control-row">
+          <input
+            type="range"
+            min="1"
+            max="4"
+            step="0.5"
+            value={config.elevationBlendPower ?? 2}
+            onChange={(e) => setConfig({ elevationBlendPower: parseFloat(e.target.value) })}
+            disabled={isGenerating}
+          />
+          <span>{config.elevationBlendPower ?? 2}</span>
         </div>
       </div>
 
@@ -62,46 +141,30 @@ export function ControlPanel() {
         <div className="control-row">
           <input
             type="range"
-            min="0"
-            max="1"
-            step="0.1"
-            value={config.riverDensity}
-            onChange={(e) => setConfig({ riverDensity: parseFloat(e.target.value) })}
-            disabled={isGenerating}
-          />
-          <span>{config.riverDensity.toFixed(1)}</span>
-        </div>
-      </div>
-
-      <div className="control-group">
-        <label>Coastal Plain Width</label>
-        <div className="control-row">
-          <input
-            type="range"
-            min="0.1"
-            max="0.5"
-            step="0.05"
-            value={config.coastalPlainWidth ?? 0.3}
-            onChange={(e) => setConfig({ coastalPlainWidth: parseFloat(e.target.value) })}
-            disabled={isGenerating}
-          />
-          <span>{((config.coastalPlainWidth ?? 0.3) * 100).toFixed(0)}%</span>
-        </div>
-      </div>
-
-      <div className="control-group">
-        <label>Ridge Height</label>
-        <div className="control-row">
-          <input
-            type="range"
-            min="50"
-            max="500"
+            min="20"
+            max="200"
             step="10"
-            value={config.ridgeHeight ?? 200}
-            onChange={(e) => setConfig({ ridgeHeight: parseInt(e.target.value) })}
+            value={config.riverThreshold ?? 50}
+            onChange={(e) => setConfig({ riverThreshold: parseInt(e.target.value) })}
             disabled={isGenerating}
           />
-          <span>{config.ridgeHeight ?? 200}m</span>
+          <span>{config.riverThreshold ?? 50}</span>
+        </div>
+      </div>
+
+      <div className="control-group">
+        <label>Island Complexity</label>
+        <div className="control-row">
+          <input
+            type="range"
+            min="1"
+            max="6"
+            step="1"
+            value={config.islandNoiseOctaves ?? 4}
+            onChange={(e) => setConfig({ islandNoiseOctaves: parseInt(e.target.value) })}
+            disabled={isGenerating}
+          />
+          <span>{config.islandNoiseOctaves ?? 4}</span>
         </div>
       </div>
 

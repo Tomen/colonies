@@ -1,7 +1,16 @@
-import { WorldGenerator, TransportNetwork } from '@colonies/core';
-import type { WorldConfig, TerrainData } from '@colonies/shared';
+import { createWorldGenerator, TransportNetwork } from '@colonies/core';
+import type {
+  WorldConfig,
+  GridTerrainData,
+  VoronoiTerrainData,
+  VoronoiCell,
+  VoronoiEdge,
+  TerrainResult,
+} from '@colonies/shared';
 
-interface SerializedTerrainData {
+// Serialized grid terrain (transferable buffers)
+export interface SerializedGridTerrain {
+  type: 'grid';
   width: number;
   height: number;
   heightBuffer: Float32Array;
@@ -9,7 +18,18 @@ interface SerializedTerrainData {
   moistureBuffer: Float32Array;
 }
 
-function serializeTerrain(terrain: TerrainData): SerializedTerrainData {
+// Serialized Voronoi terrain (plain objects, no transfer needed)
+export interface SerializedVoronoiTerrain {
+  type: 'voronoi';
+  cells: VoronoiCell[];
+  edges: VoronoiEdge[];
+  rivers: VoronoiEdge[];
+  bounds: { width: number; height: number };
+}
+
+export type SerializedTerrain = SerializedGridTerrain | SerializedVoronoiTerrain;
+
+function serializeGridTerrain(terrain: GridTerrainData): SerializedGridTerrain {
   const size = terrain.height.length;
   const heightBuffer = new Float32Array(size * size);
   const flowBuffer = new Float32Array(size * size);
@@ -24,7 +44,35 @@ function serializeTerrain(terrain: TerrainData): SerializedTerrainData {
     }
   }
 
-  return { width: size, height: size, heightBuffer, flowBuffer, moistureBuffer };
+  return {
+    type: 'grid',
+    width: size,
+    height: size,
+    heightBuffer,
+    flowBuffer,
+    moistureBuffer,
+  };
+}
+
+function serializeVoronoiTerrain(
+  terrain: VoronoiTerrainData
+): SerializedVoronoiTerrain {
+  // Voronoi cells are already plain objects, just pass through
+  return {
+    type: 'voronoi',
+    cells: terrain.cells,
+    edges: terrain.edges,
+    rivers: terrain.rivers,
+    bounds: terrain.bounds,
+  };
+}
+
+function serializeTerrain(terrain: TerrainResult): SerializedTerrain {
+  if (terrain.type === 'grid') {
+    return serializeGridTerrain(terrain);
+  } else {
+    return serializeVoronoiTerrain(terrain);
+  }
 }
 
 function postProgress(percent: number, stage: string) {
@@ -37,33 +85,43 @@ self.onmessage = (e: MessageEvent) => {
   if (type === 'GENERATE') {
     try {
       const worldConfig = config as WorldConfig;
+      const algorithm = worldConfig.generationAlgorithm ?? 'grid';
 
-      postProgress(0, 'Generating height map...');
-      const generator = new WorldGenerator(worldConfig);
+      postProgress(0, `Generating terrain (${algorithm})...`);
+      const generator = createWorldGenerator(worldConfig);
 
-      postProgress(20, 'Calculating flow accumulation...');
+      postProgress(20, 'Building terrain data...');
       const terrain = generator.generateTerrain();
 
-      postProgress(60, 'Building transport network...');
-      const _network = new TransportNetwork(worldConfig, terrain);
+      // TransportNetwork only works with grid for now
+      if (terrain.type === 'grid') {
+        postProgress(60, 'Building transport network...');
+        new TransportNetwork(worldConfig, terrain);
+      } else {
+        postProgress(60, 'Transport network not available for Voronoi...');
+      }
 
       postProgress(80, 'Finding harbor locations...');
-      const _harbor = generator.findBestHarbor(terrain);
+      generator.findBestHarbor(terrain);
 
       postProgress(95, 'Serializing terrain data...');
       const serialized = serializeTerrain(terrain);
 
-      // Transfer the buffers for zero-copy
-      self.postMessage(
-        { type: 'TERRAIN_GENERATED', terrain: serialized },
-        {
-          transfer: [
-            serialized.heightBuffer.buffer,
-            serialized.flowBuffer.buffer,
-            serialized.moistureBuffer.buffer,
-          ],
-        }
-      );
+      // Transfer buffers for grid (zero-copy), or just post for Voronoi
+      if (serialized.type === 'grid') {
+        self.postMessage(
+          { type: 'TERRAIN_GENERATED', terrain: serialized },
+          {
+            transfer: [
+              serialized.heightBuffer.buffer,
+              serialized.flowBuffer.buffer,
+              serialized.moistureBuffer.buffer,
+            ],
+          }
+        );
+      } else {
+        self.postMessage({ type: 'TERRAIN_GENERATED', terrain: serialized });
+      }
     } catch (error) {
       self.postMessage({
         type: 'ERROR',

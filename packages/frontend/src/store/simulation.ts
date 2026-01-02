@@ -1,14 +1,17 @@
 import { create } from 'zustand';
 import type { WorldConfig, Settlement, NetworkEdge } from '@colonies/shared';
 import { DEFAULT_CONFIG } from '@colonies/shared';
+import type {
+  SerializedTerrain,
+  SerializedGridTerrain,
+  SerializedVoronoiTerrain,
+} from '../workers/simulation.worker';
 
-export interface SerializedTerrainData {
-  width: number;
-  height: number;
-  heightBuffer: Float32Array;
-  flowBuffer: Float32Array;
-  moistureBuffer: Float32Array;
-}
+// Re-export types for use in components
+export type { SerializedTerrain, SerializedGridTerrain, SerializedVoronoiTerrain };
+
+// Legacy alias for backward compatibility
+export type SerializedTerrainData = SerializedGridTerrain;
 
 export type SimulationStatus = 'idle' | 'generating' | 'ready' | 'running' | 'paused' | 'error';
 
@@ -24,7 +27,7 @@ interface SimulationState {
   config: WorldConfig;
 
   // Simulation data
-  terrain: SerializedTerrainData | null;
+  terrain: SerializedTerrain | null;
   settlements: Settlement[];
   edges: NetworkEdge[];
   year: number;

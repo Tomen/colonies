@@ -1,7 +1,12 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useSimulationStore } from '../store/simulation';
+import type { SerializedGridTerrain } from '../store/simulation';
+
+interface GridTerrainMeshProps {
+  terrain: SerializedGridTerrain;
+  showRivers?: boolean;
+}
 
 // Vertex shader for terrain
 const vertexShader = `
@@ -83,16 +88,10 @@ const fragmentShader = `
   }
 `;
 
-export function TerrainMesh() {
-  const terrain = useSimulationStore((s) => s.terrain);
-  const showRivers = useSimulationStore((s) => s.visibleLayers.rivers);
+export function GridTerrainMesh({ terrain, showRivers = true }: GridTerrainMeshProps) {
   const meshRef = useRef<THREE.Mesh>(null);
 
   const { geometry, flowTexture, maxElevation } = useMemo(() => {
-    if (!terrain) {
-      return { geometry: null, flowTexture: null, maxElevation: 200 };
-    }
-
     const { width, height, heightBuffer, flowBuffer } = terrain;
 
     // Create plane geometry
@@ -152,7 +151,7 @@ export function TerrainMesh() {
     }
   });
 
-  if (!geometry || !terrain) {
+  if (!geometry) {
     return null;
   }
 

@@ -30,6 +30,34 @@ colonies/
 (pngjs, yaml)     (react, three, zustand)
 ```
 
+## Pluggable Layer Architecture
+
+Each simulation layer can have multiple algorithm implementations:
+
+```typescript
+// packages/shared/src/types.ts
+interface ITerrainGenerator {
+  generateTerrain(): TerrainData;
+  findBestHarbor(terrain: TerrainData): Point | null;
+}
+
+// packages/core/src/index.ts
+export function createWorldGenerator(config: WorldConfig): ITerrainGenerator {
+  switch (config.generationAlgorithm) {
+    case 'voronoi': return new VoronoiWorldGenerator(config);
+    case 'grid':
+    default: return new GridWorldGenerator(config);
+  }
+}
+```
+
+### Algorithm Registry
+
+| Layer | Config Key | Options |
+|-------|------------|---------|
+| Physical | `generationAlgorithm` | `'voronoi'` (default), `'grid'` |
+| Network | `pathfindingAlgorithm` | `'gridAstar'` (default) |
+
 ## Simulation Layers
 
 See [world/](world/) for detailed documentation:
@@ -79,9 +107,14 @@ In `@colonies/core`:
                     CLI                          Frontend
                      │                              │
                      ▼                              ▼
-Config ─────► WorldGenerator ◄────────────── Web Worker
+Config ────► createWorldGenerator() ◄────── Web Worker
                      │                              │
-                     ▼                              ▼
+           ┌────────┴────────┐                     │
+           ▼                 ▼                     │
+   GridGenerator    VoronoiGenerator              │
+           │                 │                     │
+           └────────┬────────┘                     │
+                    ▼                              ▼
               TerrainData ──────────────► Three.js Scene
                      │                              │
                      ▼                              ▼

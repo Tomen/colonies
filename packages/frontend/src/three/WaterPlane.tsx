@@ -18,13 +18,17 @@ export function WaterPlane() {
     return null;
   }
 
+  // Get dimensions from either terrain type
+  const width = terrain.type === 'grid' ? terrain.width : terrain.bounds.width;
+  const height = terrain.type === 'grid' ? terrain.height : terrain.bounds.height;
+
   return (
     <mesh
       ref={meshRef}
       rotation={[-Math.PI / 2, 0, 0]}
-      position={[terrain.width / 2, -0.5, terrain.height / 2]}
+      position={[width / 2, -0.5, height / 2]}
     >
-      <planeGeometry args={[terrain.width * 1.5, terrain.height * 1.5]} />
+      <planeGeometry args={[width * 1.5, height * 1.5]} />
       <meshStandardMaterial
         color="#1a4a7a"
         transparent

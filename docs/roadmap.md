@@ -43,7 +43,7 @@ Project progress and implementation milestones.
 
 ## Milestones
 
-High-level feature milestones from the [design spec](world/design.md):
+High-level feature milestones from the [world design](world/world.md):
 
 1. **M1 Physical world** - terrain, hydrology, soils, vegetation
 2. **M2 Parcels & claims** - DCEL overlay and parcel generator

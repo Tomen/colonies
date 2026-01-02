@@ -59,7 +59,9 @@ Types and configuration utilities:
 ### @colonies/core
 Platform-agnostic simulation (browser + Node.js):
 - `rng.ts`: Seeded random number generator
-- `worldgen.ts`: Terrain generation with simplex noise
+- `voronoi-worldgen.ts`: Voronoi terrain generation (default)
+- `worldgen.ts`: Grid terrain generation (legacy)
+- `generator-factory.ts`: Algorithm selection factory
 - `transport.ts`: A* pathfinding and network management
 - `growth.ts`: Settlement management
 
@@ -81,9 +83,9 @@ React + Three.js interactive viewer:
 - [Architecture](docs/architecture.md) - System design
 - [Roadmap](docs/roadmap.md) - Implementation progress
 - **Simulation**: [docs/world/](docs/world/)
+  - [World Design](docs/world/world.md) - **Main entry point for simulation design**
   - [Physical Layer](docs/world/01_physical_layer/README.md)
   - [Network Layer](docs/world/02_network_layer/README.md)
-  - [Design Spec](docs/world/design.md)
 - **Frontend**: [docs/frontend/](docs/frontend/)
 
 ## Implementation Status
@@ -106,8 +108,10 @@ Before marking any layer complete:
 
 ## Key Algorithms
 
-- **D8 Flow Routing**: 8-direction steepest descent for water flow
-- **Topological Flow Accumulation**: High-to-low elevation traversal
+- **Single Island Generation**: Radius + coastline noise for solid landmass
+- **Mapgen4-style Elevation**: Dual hills+mountains system with B/(A+B) blending
+- **Voronoi Flow Routing**: Each cell flows to lowest neighbor
+- **BFS Distance Fields**: Distance from coast/peaks for elevation
 - **Harbor Scoring**: Multi-criteria (depth, shelter, river access)
 - **A* Pathfinding**: Priority queue-based shortest path
 - **Simplex Noise**: Seeded terrain variation
@@ -116,11 +120,31 @@ Before marking any layer complete:
 
 World generation parameters via `WorldConfig` in `@colonies/shared`:
 
+### Core
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `seed` | 12345 | Deterministic RNG seed |
-| `mapSize` | 1000 | Grid resolution (10km at 10m resolution) |
-| `ridgeOrientation` | 45 | Ridge belt angle in degrees |
-| `riverDensity` | 0.5 | Precipitation multiplier (0-1) |
-| `coastalPlainWidth` | 0.3 | Fraction of map for coastal plain |
-| `ridgeHeight` | 200 | Maximum ridge elevation in meters |
+| `mapSize` | 1000 | Map size in cells |
+| `generationAlgorithm` | 'voronoi' | 'voronoi' (default) or 'grid' |
+
+### Island Shape
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `landFraction` | 0.55 | Island size (0.3=small, 0.8=large) |
+| `islandNoiseOctaves` | 4 | Coastline complexity |
+
+### Elevation (Mapgen4-style)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `peakElevation` | 300 | Maximum elevation in meters |
+| `hilliness` | 0.3 | Rolling terrain amount (0-1) |
+| `elevationBlendPower` | 2 | Coastal flatness (higher=flatter) |
+
+### Rivers
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `riverThreshold` | 50 | Min flow accumulation for river |
