@@ -8,10 +8,7 @@ export const DEFAULT_CONFIG: WorldConfig = {
   seed: 12345,
   mapSize: 1000,
 
-  // Algorithm selection
-  generationAlgorithm: 'voronoi',
-
-  // Voronoi-specific parameters
+  // Voronoi parameters
   voronoiCellCount: 10000,
   voronoiRelaxation: 2,
   landThreshold: -0.1,
@@ -58,6 +55,9 @@ export const DEFAULT_CONFIG: WorldConfig = {
   ridgeVariation: 0.2,
   coastlineMargin: 50,
   oceanDepthGradient: 0.5,
+
+  // Settlement defaults
+  settlementCount: 3,
 
   // Transport defaults (unchanged)
   baseSlopeCost: 0.1,

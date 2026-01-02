@@ -3,12 +3,6 @@ export interface Point {
   y: number;
 }
 
-// ============================================================================
-// Algorithm Selection
-// ============================================================================
-
-export type GenerationAlgorithm = 'grid' | 'voronoi';
-
 /**
  * River representation as explicit polylines with stream order.
  */
@@ -65,10 +59,7 @@ export interface WorldConfig {
   seed: number;
   mapSize: number;
 
-  // Algorithm selection
-  generationAlgorithm?: GenerationAlgorithm; // 'grid' (default) or 'voronoi'
-
-  // Voronoi-specific parameters
+  // Voronoi parameters
   voronoiCellCount?: number; // Number of Voronoi cells (default: 10000)
   voronoiRelaxation?: number; // Lloyd relaxation iterations (default: 2)
   landThreshold?: number; // Threshold for land vs water (default: -0.1)
@@ -133,6 +124,9 @@ export interface WorldConfig {
   /** @deprecated No longer used */
   oceanDepthGradient?: number;
 
+  // Settlement parameters
+  settlementCount?: number; // Number of villages to seed (default: 3)
+
   // Transport parameters (unchanged)
   baseSlopeCost?: number; // Cost multiplier per unit slope (default: 0.1)
   waterCost?: number; // Cost for water cells (default: 100)
@@ -145,36 +139,13 @@ export interface WorldConfig {
 }
 
 // ============================================================================
-// Grid Terrain Data
+// Terrain Result & Generator Interface
 // ============================================================================
 
 /**
- * Grid-based terrain data with raster grids.
+ * Terrain data format (Voronoi-based).
  */
-export interface GridTerrainData {
-  type: 'grid';
-  // Raster grids
-  height: number[][];
-  flowAccumulation: number[][];
-  moisture: number[][];
-
-  // Vector data
-  rivers?: River[]; // Explicit river polylines
-}
-
-/**
- * @deprecated Use GridTerrainData instead. Kept for backward compatibility.
- */
-export type TerrainData = GridTerrainData;
-
-// ============================================================================
-// Terrain Result Union & Generator Interface
-// ============================================================================
-
-/**
- * Union type for all terrain data formats.
- */
-export type TerrainResult = GridTerrainData | VoronoiTerrainData;
+export type TerrainResult = VoronoiTerrainData;
 
 /**
  * Interface for terrain generators.
@@ -186,10 +157,13 @@ export interface ITerrainGenerator {
 
 export interface Settlement {
   id: string;
-  position: Point;
+  name: string;
+  position: Point; // Center location
+  cellId: number; // Primary terrain cell
   population: number;
   rank: 'hamlet' | 'village' | 'town' | 'city';
   isPort: boolean;
+  claimedCells: number[]; // All terrain cells claimed by this settlement
 }
 
 export interface RiverCrossing {
@@ -221,4 +195,53 @@ export interface PathResult {
   totalCost: number;
   crossings: RiverCrossing[];
   success: boolean;
+}
+
+// ============================================================================
+// Cadastral Layer (Parcels & Land Use)
+// ============================================================================
+
+/**
+ * Land use categories for parcels.
+ */
+export type LandUse =
+  | 'wilderness' // Uncleared land
+  | 'forest' // Managed woodland
+  | 'field' // Agricultural
+  | 'pasture' // Grazing
+  | 'residential' // Houses
+  | 'commercial' // Shops, warehouses
+  | 'industrial' // Mills, workshops
+  | 'civic'; // Churches, town halls
+
+/**
+ * A parcel represents a human-scale lot within a terrain cell.
+ * For Grid terrain: 1 cell = 1 parcel
+ * For Voronoi terrain: 1 cell = 10-50 parcels (subdivision)
+ */
+export interface Parcel {
+  id: string;
+  vertices: Point[]; // Closed polygon (first != last, implied closure)
+  centroid: Point; // Center point for quick spatial queries
+  area: number; // Cached area in square meters
+
+  // Terrain reference
+  terrainCellId: number; // Parent terrain cell ID
+
+  // Ownership & use
+  owner: string | null; // null = unclaimed wilderness
+  landUse: LandUse;
+
+  // Optional metadata
+  frontage?: 'water' | 'road' | null; // Parcels may have water/road frontage
+}
+
+/**
+ * Bounding rectangle for spatial queries.
+ */
+export interface Rect {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }

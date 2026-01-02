@@ -4,8 +4,7 @@ The physical layer generates the foundational terrain, hydrology, and environmen
 
 ## Documentation
 
-- [voronoi-generation.md](voronoi-generation.md) - Voronoi mesh algorithm (default)
-- [terrain-generation.md](terrain-generation.md) - Grid-based terrain algorithm (legacy)
+- [voronoi-generation.md](voronoi-generation.md) - Voronoi mesh terrain algorithm
 - [rivers.md](rivers.md) - River generation and valley carving
 - [distance-fields.md](distance-fields.md) - Distance field computation techniques
 
@@ -19,20 +18,12 @@ This layer creates terrain that simulates a natural single-island landmass with:
 - **Flow-based rivers**: Rivers determined by flow accumulation threshold
 - **Deterministic output**: Same seed produces identical terrain
 
-## Algorithm Approaches
-
-The physical layer supports multiple terrain generation algorithms:
-
-| Algorithm | Status | Documentation | Best For |
-|-----------|--------|---------------|----------|
-| **Voronoi** | Default | [voronoi-generation.md](voronoi-generation.md) | Pathfinding, parcels, settlements |
-| **Grid** | Legacy | [terrain-generation.md](terrain-generation.md) | Hydrology, GPU rendering |
-
-### Voronoi Mesh Generation (Default)
+## Algorithm
 
 Uses Lloyd-relaxed Voronoi tessellation with d3-delaunay. See [voronoi-generation.md](voronoi-generation.md).
 
 **Key features:**
+- **Poisson disk sampling**: Natural point distribution with no grid artifacts
 - Single island with irregular coastline (no internal water pockets)
 - Mapgen4-style elevation: mountains + hills blended by distance from coast
 - Configurable coastal flatness via `elevationBlendPower`
@@ -47,29 +38,10 @@ Uses Lloyd-relaxed Voronoi tessellation with d3-delaunay. See [voronoi-generatio
 - Depression handling requires special algorithms
 - Gradient fields are noisier
 
-### Grid-Based Generation (Legacy)
-
-Uses distance-field approach on regular 2D array. See [terrain-generation.md](terrain-generation.md).
-
-**Strengths:**
-- Robust D8 hydrology
-- Direct GPU texture mapping
-- O(1) elevation sampling
-
-**Trade-offs:**
-- A* pathfinding on 1M cells is expensive
-- Roads appear pixelated
-- Land parcels feel artificial
-
-### Algorithm Selection
-
-The UI provides a pill toggle for selecting generation algorithm. Both produce compatible terrain output via discriminated union types.
-
 ## Classes
 
-- **createWorldGenerator** (`packages/core/src/generator-factory.ts`): Factory function for selecting algorithm
-- **VoronoiWorldGenerator** (`packages/core/src/voronoi-worldgen.ts`): Voronoi-based terrain generation (default)
-- **WorldGenerator** (`packages/core/src/worldgen.ts`): Grid-based terrain generation (legacy)
+- **createWorldGenerator** (`packages/core/src/generator-factory.ts`): Factory function
+- **VoronoiWorldGenerator** (`packages/core/src/voronoi-worldgen.ts`): Voronoi-based terrain generation
 - **SeededRNG** (`packages/core/src/rng.ts`): Deterministic randomness
 
 ## Key Algorithms
@@ -162,26 +134,6 @@ interface VoronoiCell {
   flowAccumulation: number;
 }
 ```
-
-### GridTerrainData (Legacy)
-
-```typescript
-interface GridTerrainData {
-  type: 'grid';
-  height: number[][];
-  flowAccumulation: number[][];
-  moisture: number[][];
-  rivers?: River[];
-}
-```
-
-## Visual Outputs (CLI)
-
-| File | Description |
-|------|-------------|
-| `height_map.png` | Elevation: blue = water, green→brown = low→high |
-| `flow_accumulation.png` | River flow (log scale): dark→bright blue |
-| `moisture_map.png` | Soil moisture: brown = dry, green = wet |
 
 ## Integration with Other Layers
 

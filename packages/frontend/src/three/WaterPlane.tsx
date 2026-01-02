@@ -18,9 +18,8 @@ export function WaterPlane() {
     return null;
   }
 
-  // Get dimensions from either terrain type
-  const width = terrain.type === 'grid' ? terrain.width : terrain.bounds.width;
-  const height = terrain.type === 'grid' ? terrain.height : terrain.bounds.height;
+  // Get dimensions from terrain
+  const { width, height } = terrain.bounds;
 
   return (
     <mesh

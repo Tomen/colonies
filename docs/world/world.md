@@ -26,11 +26,11 @@ Vision, layers, entities, and validation criteria for the Colonies simulation.
 ├─────────────────────────────────────────────────────────────────┤
 │                    CADASTRAL LAYER                              │
 │           Parcels, Ownership, Land Use                          │
-│        DCEL/Half-Edge, Metes-and-Bounds                         │
+│      Simple Polygons, On-Demand Subdivision                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                     PHYSICAL LAYER                              │
 │          Terrain, Hydrology, Soils, Vegetation                  │
-│         Grid Raster (1000×1000) or Voronoi (~10K)              │
+│              Voronoi Mesh (~10K polygonal cells)                │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
                               │
@@ -61,20 +61,13 @@ Physical → Cadastral → Network → Settlements → Economy → Agents
 - Modular design or ECS with job system/workers for long steps.
 - Clean separation between simulation (ticks) and rendering.
 
-## Pluggable Algorithm Architecture
+## Algorithm Architecture
 
-Each simulation layer supports multiple algorithm implementations that can be compared and stacked:
-
-| Layer | Current | Planned |
-|-------|---------|---------|
-| Physical | Grid (raster D8), Voronoi mesh | - |
-| Network | Grid A* | Graph A* on Voronoi |
-| Cadastral | - | DCEL parcels |
-
-The UI allows selecting algorithms per layer to study their impact on:
-- Visual appearance
-- Performance characteristics
-- Downstream layer compatibility
+| Layer | Implementation | Notes |
+|-------|----------------|-------|
+| Physical | Voronoi mesh (Poisson disk sampling) | ~10K cells, Lloyd relaxation |
+| Cadastral | Simple polygons | Recursive Voronoi subdivision within cells |
+| Settlements | Cell-based village seeding | Rings expansion from center |
 
 ---
 
@@ -89,32 +82,58 @@ The UI allows selecting algorithms per layer to study their impact on:
 - **Climate/seasonality:** optional seasonal multipliers for productivity and travel.
 - Data stored as raster grids (height, fertility, forest age, moisture) and vector sets (coastline, rivers, water bodies).
 
-### Physical Layer Algorithms
+### Terrain Generation
 
-Two approaches are implemented for terrain generation:
+See [voronoi-generation.md](01_physical_layer/voronoi-generation.md) for full details.
 
-**Grid-Based** - See [terrain-generation.md](01_physical_layer/terrain-generation.md)
-- Regular 2D raster array (1000×1000 cells)
-- D8 flow routing for hydrology
-- GPU-friendly texture mapping
-- Trade-off: 1M cells makes A* expensive
-
-**Voronoi Mesh** - See [voronoi-generation.md](01_physical_layer/voronoi-generation.md)
-- ~10K irregular polygonal cells
+- **Poisson disk sampling**: Natural point distribution with no grid artifacts
+- ~10K irregular polygonal cells via Lloyd-relaxed Voronoi
 - Delaunay dual graph for flow routing
-- Organic visual appearance
-- Trade-off: Flow routing more complex
+- Mapgen4-style dual elevation (hills + mountains)
 
 ---
 
 ## Cadastral Layer (Parcels & Ownership)
 
-**Status:** Pending | **Task:** [todo/03_growth.md](todo/03_growth.md)
+**Status:** Implemented | **Design:** [exploration/2025-01-cadastral-design.md](exploration/2025-01-cadastral-design.md)
 
-- DCEL/half-edge overlay storing parcel polygons.
-- Parcel generation anchored on coastlines, river bends or road junctions with metes-and-bounds bearings and area constraints.
-- Edges snap to rivers/roads or straight bearings; topology must remain valid.
-- Parcels track owner id, tenure, and current land use (forest, field, pasture, manufactory, town lots).
+The cadastral layer provides human-scale parcels for building placement, sitting between the physical terrain and settlements.
+
+**Implementation:** `@colonies/core` - `CadastralManager` class in `cadastral.ts`
+
+### Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Representation | Simple polygons | Defer DCEL complexity for MVP |
+| Generation | On-demand | Create parcels when settlements claim cells |
+| Subdivision | Organic (recursive Voronoi) | Natural-looking lots within cells |
+| Visualization | Wireframe + colored by use | Debug visibility and land use display |
+
+### Parcel Structure
+
+```typescript
+interface Parcel {
+  id: string;
+  vertices: Point[];        // Simple closed polygon
+  centroid: Point;
+  area: number;
+  terrainCellId: number;    // Parent terrain cell
+  owner: string | null;
+  landUse: LandUse;
+}
+
+type LandUse = 'wilderness' | 'forest' | 'field' | 'pasture'
+             | 'residential' | 'commercial' | 'industrial' | 'civic';
+```
+
+### Terrain Integration
+
+| Cell Size | Parcels per Cell | Strategy |
+|-----------|------------------|----------|
+| ~100m (Voronoi) | 10-50 | Recursive Voronoi subdivision |
+
+For Voronoi cells, parcels are created by generating random points inside the cell and computing a sub-Voronoi diagram, clipped to the parent cell boundary. This produces organic, irregular lots.
 
 ---
 
@@ -131,11 +150,41 @@ Two approaches are implemented for terrain generation:
 
 ## Settlements & Urbanization
 
-**Status:** Pending | **Task:** [todo/03_growth.md](todo/03_growth.md)
+**Status:** Implemented (Basic Seeding) | **Design:** [exploration/2025-01-settlement-design-decisions.md](exploration/2025-01-settlement-design-decisions.md)
 
-- Settlement entities hold population, services, industries and port status; ranks progress hamlet → village → town → city.
-- Seeds at sheltered harbors or river mouths; secondary seeds at fall line and crossroads.
-- Growth driven by attractiveness (market access, harbor quality, flat land, resources, governance). Streets begin organic then adopt grids.
+**Implementation:** `@colonies/core` - `SettlementManager` class in `settlements.ts`
+
+Settlement entities hold population, services, industries and port status; ranks progress hamlet → village → town → city.
+
+### Current Implementation
+
+- **Seeding:** Random land cell selection with minimum spacing between villages
+- **Cadastral Integration:** Settlements claim terrain cells, subdivide into parcels via CadastralManager
+- **Land Use Assignment:** Core cells get residential parcels, surrounding rings get field/pasture
+- **Visualization:** Cone markers colored by rank + parcel land use coloring
+- **Configuration:** `settlementCount` parameter in WorldConfig (default: 3)
+
+### Settlement Structure
+
+```typescript
+interface Settlement {
+  id: string;
+  name: string;           // Procedural name (e.g., "Greenville")
+  position: Point;        // Center location
+  cellId: number;         // Primary terrain cell
+  population: number;
+  rank: 'hamlet' | 'village' | 'town' | 'city';
+  isPort: boolean;
+  claimedCells: number[]; // All terrain cells claimed
+}
+```
+
+### Future Enhancements (Not Yet Implemented)
+
+- Seeds at sheltered harbors or river mouths; secondary seeds at fall line and crossroads
+- Growth driven by attractiveness (market access, harbor quality, flat land, resources)
+- Population dynamics with carrying capacity model
+- Street layout (organic initially, then grid adoption)
 
 ---
 
@@ -192,3 +241,4 @@ Editable knobs include terrain shape, harbor scoring weights, parcel size and fr
 Design discussions and option analyses are archived in [exploration/](exploration/):
 - [2025-01-next-steps-options.md](exploration/2025-01-next-steps-options.md) - Post-terrain next steps
 - [2025-01-settlement-design-decisions.md](exploration/2025-01-settlement-design-decisions.md) - Settlement architecture
+- [2025-01-cadastral-design.md](exploration/2025-01-cadastral-design.md) - Cadastral layer design

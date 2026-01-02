@@ -32,10 +32,7 @@ export function StatusBar() {
         <>
           <div className="status-item">
             <span>
-              Size:{' '}
-              {terrain.type === 'grid'
-                ? `${terrain.width} x ${terrain.height}`
-                : `${terrain.bounds.width} x ${terrain.bounds.height}`}
+              Size: {terrain.bounds.width} x {terrain.bounds.height}
             </span>
           </div>
           <div className="status-item">

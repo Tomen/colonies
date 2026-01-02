@@ -42,8 +42,8 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
     const cellCount = this.config.voronoiCellCount ?? 10000;
     const relaxIterations = this.config.voronoiRelaxation ?? 2;
 
-    // 1. Generate seed points (jittered grid)
-    const points = this.generateJitteredPoints(mapSize, cellCount);
+    // 1. Generate seed points (Poisson disk sampling)
+    const points = this.generatePoissonDiskPoints(mapSize, cellCount);
 
     // 2. Create Delaunay triangulation and Voronoi diagram
     let delaunay = Delaunay.from(points);
@@ -82,22 +82,99 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
     };
   }
 
-  private generateJitteredPoints(
+  /**
+   * Poisson disk sampling using Bridson's algorithm.
+   * Generates points with guaranteed minimum spacing and no grid artifacts.
+   */
+  private generatePoissonDiskPoints(
     size: number,
-    count: number
+    targetCount: number
   ): [number, number][] {
-    const points: [number, number][] = [];
-    const spacing = Math.sqrt((size * size) / count);
-    const jitter = spacing * 0.5;
+    // Calculate minimum distance from target cell count
+    // Area per cell ≈ size² / count, cell radius ≈ √(area/π)
+    const minDist = Math.sqrt((size * size) / targetCount) * 0.8;
+    const cellSize = minDist / Math.SQRT2;
+    const gridWidth = Math.ceil(size / cellSize);
+    const gridHeight = Math.ceil(size / cellSize);
 
-    for (let x = spacing / 2; x < size; x += spacing) {
-      for (let y = spacing / 2; y < size; y += spacing) {
-        points.push([
-          x + (this.rng.next() - 0.5) * jitter,
-          y + (this.rng.next() - 0.5) * jitter,
-        ]);
+    // Background grid for spatial queries (-1 = empty)
+    const grid: number[] = new Array(gridWidth * gridHeight).fill(-1);
+    const points: [number, number][] = [];
+    const active: number[] = [];
+    const k = 30; // Candidates per iteration
+
+    // Helper to get grid index
+    const gridIndex = (x: number, y: number): number => {
+      const gx = Math.floor(x / cellSize);
+      const gy = Math.floor(y / cellSize);
+      if (gx < 0 || gx >= gridWidth || gy < 0 || gy >= gridHeight) return -1;
+      return gy * gridWidth + gx;
+    };
+
+    // Check if point is valid (no neighbors within minDist)
+    const isValid = (x: number, y: number): boolean => {
+      if (x < 0 || x >= size || y < 0 || y >= size) return false;
+
+      const gx = Math.floor(x / cellSize);
+      const gy = Math.floor(y / cellSize);
+
+      // Check 5x5 neighborhood
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = gx + dx;
+          const ny = gy + dy;
+          if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight) continue;
+
+          const idx = grid[ny * gridWidth + nx];
+          if (idx !== -1) {
+            const [px, py] = points[idx];
+            const dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+            if (dist < minDist) return false;
+          }
+        }
+      }
+      return true;
+    };
+
+    // Start with random seed point
+    const x0 = this.rng.next() * size;
+    const y0 = this.rng.next() * size;
+    points.push([x0, y0]);
+    active.push(0);
+    const idx0 = gridIndex(x0, y0);
+    if (idx0 >= 0) grid[idx0] = 0;
+
+    // Generate points
+    while (active.length > 0) {
+      // Pick random active point
+      const activeIdx = Math.floor(this.rng.next() * active.length);
+      const pointIdx = active[activeIdx];
+      const [px, py] = points[pointIdx];
+
+      let found = false;
+      for (let i = 0; i < k; i++) {
+        // Generate random point in annulus [minDist, 2*minDist]
+        const angle = this.rng.next() * Math.PI * 2;
+        const radius = minDist + this.rng.next() * minDist;
+        const nx = px + Math.cos(angle) * radius;
+        const ny = py + Math.sin(angle) * radius;
+
+        if (isValid(nx, ny)) {
+          const newIdx = points.length;
+          points.push([nx, ny]);
+          active.push(newIdx);
+          const gIdx = gridIndex(nx, ny);
+          if (gIdx >= 0) grid[gIdx] = newIdx;
+          found = true;
+        }
+      }
+
+      if (!found) {
+        // Remove from active list
+        active.splice(activeIdx, 1);
       }
     }
+
     return points;
   }
 
@@ -319,10 +396,11 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
 
       // Normalize distances
       const coastT = Math.min(distFromCoast[cell.id] / maxCoastDist, 1);
-      const peakT =
+      const _peakT =
         maxPeakDist > 0
           ? 1 - Math.min(distFromPeak[cell.id] / maxPeakDist, 1)
           : 0;
+      void _peakT; // Reserved for future use
 
       // Mountain elevation: combine distance from coast and distance from peaks
       // Using B/(A+B) formula where A = dist from peak, B = dist from coast

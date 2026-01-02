@@ -31,6 +31,51 @@
   color: #fff;
 }
 
+.control-panel h3 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ccc;
+}
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+.tab {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab:hover:not(.active) {
+  color: #bbb;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab.active {
+  background: #3a3a5a;
+  color: #fff;
+}
+
+.tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .control-group {
   margin-bottom: 6px;
 }
@@ -244,4 +289,14 @@ button.secondary:hover:not(:disabled) {
   background: #3a3a5a;
   border-color: #4a9eff;
   color: #fff;
+}
+
+/* Reset camera button */
+.reset-camera-btn {
+  margin-top: 10px;
+  background: #444;
+}
+
+.reset-camera-btn:hover:not(:disabled) {
+  background: #555;
 }

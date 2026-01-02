@@ -59,17 +59,16 @@ Types and configuration utilities:
 ### @colonies/core
 Platform-agnostic simulation (browser + Node.js):
 - `rng.ts`: Seeded random number generator
-- `voronoi-worldgen.ts`: Voronoi terrain generation (default)
-- `worldgen.ts`: Grid terrain generation (legacy)
-- `generator-factory.ts`: Algorithm selection factory
-- `transport.ts`: A* pathfinding and network management
-- `growth.ts`: Settlement management
+- `voronoi-worldgen.ts`: Voronoi terrain generation
+- `generator-factory.ts`: World generator factory
+- `cadastral.ts`: Parcel subdivision and land use management
+- `settlements.ts`: Settlement seeding and expansion
+- `growth.ts`: Settlement management (legacy stub)
 
 ### @colonies/cli
 Node.js CLI for batch generation:
 - `main.ts`: Entry point
 - `config.ts`: YAML config file loading
-- `png_exporter.ts`: PNG visualization output
 
 ### @colonies/frontend
 React + Three.js interactive viewer:
@@ -93,9 +92,10 @@ React + Three.js interactive viewer:
 | Component | Status | Documentation |
 |-----------|--------|---------------|
 | Physical Layer | Complete | [docs/world/01_physical_layer/](docs/world/01_physical_layer/README.md) |
+| Cadastral Layer | Complete | [docs/world/world.md#cadastral-layer](docs/world/world.md) |
 | Network Layer | Complete | [docs/world/02_network_layer/](docs/world/02_network_layer/README.md) |
+| Settlements | Basic | [docs/world/world.md#settlements--urbanization](docs/world/world.md) |
 | Frontend Viewer | Complete | [docs/frontend/](docs/frontend/README.md) |
-| Cadastral/Growth | Pending | [docs/world/todo/03_growth.md](docs/world/todo/03_growth.md) |
 | Economy/Industry | Pending | [docs/world/todo/04_industries.md](docs/world/todo/04_industries.md) |
 
 ## Definition of Done
@@ -126,7 +126,6 @@ World generation parameters via `WorldConfig` in `@colonies/shared`:
 |-----------|---------|-------------|
 | `seed` | 12345 | Deterministic RNG seed |
 | `mapSize` | 1000 | Map size in cells |
-| `generationAlgorithm` | 'voronoi' | 'voronoi' (default) or 'grid' |
 
 ### Island Shape
 
@@ -148,3 +147,9 @@ World generation parameters via `WorldConfig` in `@colonies/shared`:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `riverThreshold` | 50 | Min flow accumulation for river |
+
+### Settlements
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `settlementCount` | 3 | Number of villages to seed (0-10) |

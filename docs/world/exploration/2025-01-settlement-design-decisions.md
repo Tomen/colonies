@@ -1,7 +1,7 @@
 # Settlement System Design Decisions
 
 *Explored: January 2025*
-*Status: Under review*
+*Status: Partially implemented (basic seeding)*
 
 ## Context
 

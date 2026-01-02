@@ -4,7 +4,7 @@ Specification for Voronoi mesh-based terrain generation algorithm.
 
 ## Overview
 
-Unlike Grid-based generation, Voronoi uses an irregular mesh of polygonal cells. This approach is inspired by [Red Blob Games' mapgen4](https://www.redblobgames.com/maps/mapgen4/) and uses similar techniques for elevation and terrain shaping.
+Voronoi terrain generation uses an irregular mesh of polygonal cells. This approach is inspired by [Red Blob Games' mapgen4](https://www.redblobgames.com/maps/mapgen4/) and uses similar techniques for elevation and terrain shaping.
 
 **Best for:**
 - Organic visual appearance
@@ -21,21 +21,26 @@ Unlike Grid-based generation, Voronoi uses an irregular mesh of polygonal cells.
 
 ### 1. Point Distribution
 
-Generate seed points for Voronoi cells using a jittered grid:
+Generate seed points for Voronoi cells using **Poisson disk sampling** (Bridson's algorithm):
 
 ```typescript
-const spacing = Math.sqrt((size * size) / cellCount);
-const jitter = spacing * 0.5;
+// Calculate minimum distance from target cell count
+const minDist = Math.sqrt((size * size) / targetCount) * 0.8;
 
-for (let x = spacing / 2; x < size; x += spacing) {
-  for (let y = spacing / 2; y < size; y += spacing) {
-    points.push([
-      x + (random() - 0.5) * jitter,
-      y + (random() - 0.5) * jitter
-    ]);
-  }
-}
+// Bridson's algorithm:
+// 1. Create background grid for spatial queries (cell size = minDist / √2)
+// 2. Start with random seed point, add to active list
+// 3. For each active point, generate k candidates at distance [r, 2r]
+// 4. Accept candidate if no existing point within minDist
+// 5. Remove point from active list when no valid candidates found
+// 6. Repeat until active list empty
 ```
+
+**Why Poisson disk sampling?**
+- **No grid artifacts**: True random distribution with no visible patterns
+- **Minimum spacing guarantee**: Prevents tiny cells that would cause rendering issues
+- **Organic appearance**: Natural-looking cell distribution
+- **Efficient**: O(n) complexity via spatial hash grid
 
 ### 2. Voronoi Tessellation
 
@@ -272,4 +277,5 @@ interface VoronoiTerrainData {
 - [Red Blob Games: mapgen4](https://www.redblobgames.com/maps/mapgen4/)
 - [Mapgen4 Elevation Blog Post](https://www.redblobgames.com/x/1728-elevation-control/)
 - [d3-delaunay library](https://github.com/d3/d3-delaunay)
+- [Poisson Disk Sampling (Bridson's algorithm)](https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf)
 - [Priority-Flood Depression Filling](https://arxiv.org/abs/1511.04463)

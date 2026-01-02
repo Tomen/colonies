@@ -17,10 +17,10 @@ Contains all simulation algorithms without platform-specific I/O. Used by both `
 | File | Description |
 |------|-------------|
 | `rng.ts` | SeededRNG - Linear congruential generator |
-| `worldgen.ts` | WorldGenerator - Grid-based terrain, hydrology, harbors |
 | `voronoi-worldgen.ts` | VoronoiWorldGenerator - Voronoi polygon terrain |
-| `generator-factory.ts` | createWorldGenerator - Factory for algorithm selection |
-| `transport.ts` | TransportNetwork - A* pathfinding, edges, upgrades |
+| `generator-factory.ts` | createWorldGenerator - Factory function |
+| `cadastral.ts` | CadastralManager - Parcel subdivision and land use |
+| `settlements.ts` | SettlementManager - Village seeding and expansion |
 | `growth.ts` | GrowthManager - Settlements (stub) |
 | `rivers.ts` | River utilities |
 | `distance-field.ts` | Distance field calculations |
@@ -29,17 +29,7 @@ Contains all simulation algorithms without platform-specific I/O. Used by both `
 ## Key Classes
 
 ### createWorldGenerator(config)
-Factory function that returns appropriate generator based on `config.generationAlgorithm`:
-- `'grid'` (default) - Returns WorldGenerator
-- `'voronoi'` - Returns VoronoiWorldGenerator
-
-### WorldGenerator
-Grid-based terrain generation with:
-- Height map (coastal plain → ridge transition)
-- D8 flow direction and accumulation
-- Moisture calculation
-- Harbor suitability scoring
-- Returns `GridTerrainData` with `type: 'grid'`
+Factory function that returns a VoronoiWorldGenerator.
 
 ### VoronoiWorldGenerator
 Voronoi polygon-based terrain generation using d3-delaunay:
@@ -49,12 +39,17 @@ Voronoi polygon-based terrain generation using d3-delaunay:
 - Cell-based moisture diffusion
 - Returns `VoronoiTerrainData` with `type: 'voronoi'`
 
-### TransportNetwork
-Manages movement with:
-- Cost field from terrain slope/water
-- A* pathfinding (8-directional)
-- River crossing detection
-- Edge upgrades (trail→road→turnpike)
+### CadastralManager
+Manages parcels within terrain cells:
+- Subdivides Voronoi cells into lot-sized parcels
+- Tracks land use per parcel
+- Provides spatial queries
+
+### SettlementManager
+Handles village placement and growth:
+- Seeds villages on suitable land cells
+- Claims surrounding cells for expansion
+- Assigns land uses to parcels
 
 ### SeededRNG
 Deterministic random numbers for reproducible generation.
@@ -71,10 +66,10 @@ pnpm lint        # Run ESLint
 ## Tests
 
 Tests are in `tests/`:
-- `worldgen.test.ts` - Grid terrain generation, hydrology, harbors
 - `voronoi-worldgen.test.ts` - Voronoi terrain generation, cell properties
-- `generator-factory.test.ts` - Factory function, type discriminators
-- `transport.test.ts` - Cost field, A*, edges, upgrades
+- `generator-factory.test.ts` - Factory function tests
+- `cadastral.test.ts` - Parcel subdivision and queries
+- `settlements.test.ts` - Village seeding and expansion
 - `growth.test.ts` - Settlement stubs
 
 ## Guidelines

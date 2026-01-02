@@ -41,22 +41,15 @@ interface ITerrainGenerator {
   findBestHarbor(terrain: TerrainData): Point | null;
 }
 
-// packages/core/src/index.ts
+// packages/core/src/generator-factory.ts
 export function createWorldGenerator(config: WorldConfig): ITerrainGenerator {
-  switch (config.generationAlgorithm) {
-    case 'voronoi': return new VoronoiWorldGenerator(config);
-    case 'grid':
-    default: return new GridWorldGenerator(config);
-  }
+  return new VoronoiWorldGenerator(config);
 }
 ```
 
-### Algorithm Registry
+### Algorithm
 
-| Layer | Config Key | Options |
-|-------|------------|---------|
-| Physical | `generationAlgorithm` | `'voronoi'` (default), `'grid'` |
-| Network | `pathfindingAlgorithm` | `'gridAstar'` (default) |
+Uses **Voronoi mesh terrain generation** with Poisson disk sampling for natural cell distribution. See [Physical Layer](world/01_physical_layer/README.md).
 
 ## Simulation Layers
 
@@ -86,8 +79,7 @@ See [frontend/](frontend/) for detailed documentation:
 Defined in `@colonies/shared`:
 
 - **WorldConfig** - Configuration parameters for world generation
-- **TerrainData** - Raster grids for height, flow, moisture
-- **CostField** - Movement cost grid with water/river flags
+- **VoronoiTerrainData** - Voronoi cells with elevation, moisture, flow
 - **PathResult** - Pathfinding result with path, cost, crossings
 - **NetworkEdge** - Transport edges with type, cost, usage
 - **Settlement** - Entities with population, rank, location
@@ -97,9 +89,9 @@ Defined in `@colonies/shared`:
 In `@colonies/core`:
 
 - **SeededRNG** - Deterministic random number generator
-- **WorldGenerator** - Terrain generation, hydrology, harbor scoring
-- **TransportNetwork** - A* pathfinding, edge management, upgrades
-- **GrowthManager** - Settlement creation and population
+- **VoronoiWorldGenerator** - Voronoi terrain with Poisson disk sampling
+- **CadastralManager** - Parcel subdivision and land use
+- **SettlementManager** - Village seeding and expansion
 
 ## Data Flow
 
@@ -109,19 +101,14 @@ In `@colonies/core`:
                      ▼                              ▼
 Config ────► createWorldGenerator() ◄────── Web Worker
                      │                              │
-           ┌────────┴────────┐                     │
-           ▼                 ▼                     │
-   GridGenerator    VoronoiGenerator              │
-           │                 │                     │
-           └────────┬────────┘                     │
-                    ▼                              ▼
-              TerrainData ──────────────► Three.js Scene
+                     ▼                              │
+           VoronoiWorldGenerator                   │
                      │                              │
                      ▼                              ▼
-           TransportNetwork                   React UI
-                     │
-                     ▼
-              PngExporter
+         VoronoiTerrainData ────────────► Three.js Scene
+                     │                              │
+                     ▼                              ▼
+           SettlementManager                  React UI
 ```
 
 ## Development Tools

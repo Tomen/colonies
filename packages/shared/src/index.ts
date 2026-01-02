@@ -3,23 +3,22 @@ export type {
   Point,
   River,
   WorldConfig,
-  TerrainData,
   Settlement,
   RiverCrossing,
   NetworkEdge,
   CostField,
   PathResult,
-  // Algorithm selection
-  GenerationAlgorithm,
   // Voronoi types
   VoronoiCell,
   VoronoiEdge,
   VoronoiTerrainData,
-  // Grid types
-  GridTerrainData,
-  // Union type and interface
+  // Terrain type and interface
   TerrainResult,
   ITerrainGenerator,
+  // Cadastral types
+  LandUse,
+  Parcel,
+  Rect,
 } from './types.js';
 
 // Config utilities

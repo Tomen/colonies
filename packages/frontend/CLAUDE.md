@@ -23,15 +23,17 @@ src/
 ├── main.tsx           # Entry point
 ├── App.tsx            # Root component
 ├── components/        # React UI components
-│   ├── ControlPanel.tsx  # Config sliders, algorithm dropdown
+│   ├── ControlPanel.tsx  # Config sliders
 │   ├── StatusBar.tsx
 │   └── LayerToggles.tsx
 ├── store/             # Zustand state
-│   └── simulation.ts  # Worker communication, terrain state
+│   ├── simulation.ts     # Worker communication, terrain state
+│   └── terrainHeight.ts  # Height data for consistent Y positioning
 ├── three/             # Three.js components
-│   ├── TerrainRenderer.tsx   # Conditional renderer (grid/voronoi)
-│   ├── GridTerrainMesh.tsx   # Grid-based terrain mesh
+│   ├── TerrainRenderer.tsx   # Terrain renderer
 │   ├── VoronoiTerrainMesh.tsx # Voronoi polygon terrain mesh
+│   ├── ParcelMesh.tsx        # Parcel overlay
+│   ├── SettlementMarkers.tsx # Settlement markers
 │   └── WaterPlane.tsx
 └── workers/           # Web Workers
     └── simulation.worker.ts
@@ -43,13 +45,13 @@ src/
 React UI ←→ Zustand Store ←→ Web Worker ←→ @colonies/core
                 ↓
          Three.js Scene
-           (GridTerrainMesh or VoronoiTerrainMesh)
+           (VoronoiTerrainMesh)
 ```
 
-1. **ControlPanel** - User adjusts config, selects algorithm, clicks Generate
-2. **Zustand Store** - Sends config to worker, receives terrain (grid or voronoi)
-3. **Web Worker** - Runs createWorldGenerator() with selected algorithm
-4. **TerrainRenderer** - Dispatches to GridTerrainMesh or VoronoiTerrainMesh based on terrain type
+1. **ControlPanel** - User adjusts config, clicks Generate
+2. **Zustand Store** - Sends config to worker, receives terrain
+3. **Web Worker** - Runs createWorldGenerator() for Voronoi terrain
+4. **TerrainRenderer** - Renders VoronoiTerrainMesh
 
 ## Commands
 
@@ -63,32 +65,55 @@ pnpm lint     # Run ESLint
 ## Key Components
 
 ### simulation.ts (Zustand Store)
-- Manages WorldConfig state including `generationAlgorithm`
+- Manages WorldConfig state
 - Communicates with Web Worker
-- Stores terrain as `SerializedTerrain` (grid or voronoi)
+- Stores terrain as `SerializedTerrain`
 - Tracks generation progress
 
 ### simulation.worker.ts
 - Receives config from main thread
-- Uses `createWorldGenerator()` factory for algorithm selection
-- Serializes terrain (Float32Array transfer for grid, plain objects for voronoi)
+- Uses `createWorldGenerator()` to generate Voronoi terrain
+- Runs SettlementManager for village placement
 - Posts terrain data back to main thread
 
 ### TerrainRenderer.tsx
 - Reads terrain from Zustand store
-- Dispatches to appropriate mesh based on `terrain.type`:
-  - `'grid'` -> GridTerrainMesh
-  - `'voronoi'` -> VoronoiTerrainMesh
-
-### GridTerrainMesh.tsx
-- Creates PlaneGeometry with vertex displacement
-- GLSL shaders for elevation-based coloring
-- Flow texture for river visualization
+- Renders VoronoiTerrainMesh for terrain
+- Renders ParcelMesh for land use overlay
+- Renders SettlementMarkers for villages
 
 ### VoronoiTerrainMesh.tsx
 - Creates BufferGeometry from cell polygons (fan triangulation)
 - Vertex colors based on cell properties
 - River edges rendered as line segments
+- Populates terrainHeight store after geometry is built
+
+### terrainHeight.ts (Height Data Store)
+Centralized height data for consistent Y positioning across all 3D overlays.
+
+**Constants:**
+- `ELEVATION_SCALE = 0.5` - Multiplier for elevation values
+- `FLAT_HEIGHT = 1` - Y coordinate in flat mode
+- `OCEAN_DEPTH = -5` - Elevation for water cells
+
+**Data:**
+- `cellHeights: Map<cellId, number>` - Rendered Y for cell centers
+- `vertexHeights: Map<"x,y", number>` - Rendered Y for cell vertices
+
+**Utility Functions:**
+- `getCellHeight(cellId, cellHeights, useHeight)` - For settlements, parcel centroids
+- `getVertexHeight(x, y, vertexHeights, useHeight)` - For roads, rivers at cell edges
+- `buildCellHeights(cells, useHeight)` - Build cell height map
+- `buildVertexHeights(cells, useHeight)` - Build vertex height map
+
+**Usage Pattern:**
+```typescript
+// In a rendering component
+const cellHeights = useTerrainHeightStore((s) => s.cellHeights);
+const useHeight = useTerrainHeightStore((s) => s.useHeight);
+
+const y = getCellHeight(cellId, cellHeights, useHeight) + OFFSET;
+```
 
 ## Guidelines
 
@@ -96,4 +121,5 @@ pnpm lint     # Run ESLint
 - Keep React components lightweight
 - Use Zustand for all shared state
 - Three.js components use @react-three/fiber conventions
+- **All 3D overlays must use terrainHeight store for Y positioning** - never use hardcoded heights
 - Test locally with `pnpm dev` before committing

@@ -1,78 +1,72 @@
-import { createWorldGenerator, TransportNetwork } from '@colonies/core';
+import { createWorldGenerator, CadastralManager, SettlementManager, SeededRNG } from '@colonies/core';
 import type {
   WorldConfig,
-  GridTerrainData,
   VoronoiTerrainData,
   VoronoiCell,
   VoronoiEdge,
   TerrainResult,
+  Parcel,
+  Point,
+  Settlement,
 } from '@colonies/shared';
 
-// Serialized grid terrain (transferable buffers)
-export interface SerializedGridTerrain {
-  type: 'grid';
-  width: number;
-  height: number;
-  heightBuffer: Float32Array;
-  flowBuffer: Float32Array;
-  moistureBuffer: Float32Array;
-}
-
 // Serialized Voronoi terrain (plain objects, no transfer needed)
-export interface SerializedVoronoiTerrain {
+export interface SerializedTerrain {
   type: 'voronoi';
   cells: VoronoiCell[];
   edges: VoronoiEdge[];
   rivers: VoronoiEdge[];
   bounds: { width: number; height: number };
+  parcels: Parcel[];
+  settlements: Settlement[];
+  harborLocation: Point | null;
 }
 
-export type SerializedTerrain = SerializedGridTerrain | SerializedVoronoiTerrain;
-
-function serializeGridTerrain(terrain: GridTerrainData): SerializedGridTerrain {
-  const size = terrain.height.length;
-  const heightBuffer = new Float32Array(size * size);
-  const flowBuffer = new Float32Array(size * size);
-  const moistureBuffer = new Float32Array(size * size);
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const idx = y * size + x;
-      heightBuffer[idx] = terrain.height[y][x];
-      flowBuffer[idx] = terrain.flowAccumulation[y][x];
-      moistureBuffer[idx] = terrain.moisture[y][x];
-    }
-  }
-
-  return {
-    type: 'grid',
-    width: size,
-    height: size,
-    heightBuffer,
-    flowBuffer,
-    moistureBuffer,
-  };
-}
-
-function serializeVoronoiTerrain(
-  terrain: VoronoiTerrainData
-): SerializedVoronoiTerrain {
-  // Voronoi cells are already plain objects, just pass through
+function serializeTerrain(
+  terrain: VoronoiTerrainData,
+  parcels: Parcel[],
+  settlements: Settlement[],
+  harborLocation: Point | null
+): SerializedTerrain {
   return {
     type: 'voronoi',
     cells: terrain.cells,
     edges: terrain.edges,
     rivers: terrain.rivers,
     bounds: terrain.bounds,
+    parcels,
+    settlements,
+    harborLocation,
   };
 }
 
-function serializeTerrain(terrain: TerrainResult): SerializedTerrain {
-  if (terrain.type === 'grid') {
-    return serializeGridTerrain(terrain);
-  } else {
-    return serializeVoronoiTerrain(terrain);
+/**
+ * Generate settlements and their parcels.
+ * Uses SettlementManager for proper settlement seeding.
+ */
+function generateSettlementsAndParcels(
+  terrain: TerrainResult,
+  config: WorldConfig
+): { parcels: Parcel[]; settlements: Settlement[] } {
+  const settlementCount = config.settlementCount ?? 3;
+
+  // Skip if no settlements requested
+  if (settlementCount <= 0) {
+    return { parcels: [], settlements: [] };
   }
+
+  // Create managers with fresh RNG for deterministic results
+  const rng = new SeededRNG(config.seed + 1000); // Offset seed to avoid terrain correlation
+  const cadastral = new CadastralManager(terrain, rng);
+  const settlementManager = new SettlementManager(cadastral, rng);
+
+  // Seed settlements
+  const settlements = settlementManager.seedSettlements(settlementCount);
+
+  // Get all generated parcels
+  const parcels = cadastral.getAllParcels();
+
+  return { parcels, settlements };
 }
 
 function postProgress(percent: number, stage: string) {
@@ -85,43 +79,23 @@ self.onmessage = (e: MessageEvent) => {
   if (type === 'GENERATE') {
     try {
       const worldConfig = config as WorldConfig;
-      const algorithm = worldConfig.generationAlgorithm ?? 'grid';
 
-      postProgress(0, `Generating terrain (${algorithm})...`);
+      postProgress(0, 'Generating terrain...');
       const generator = createWorldGenerator(worldConfig);
 
       postProgress(20, 'Building terrain data...');
       const terrain = generator.generateTerrain();
 
-      // TransportNetwork only works with grid for now
-      if (terrain.type === 'grid') {
-        postProgress(60, 'Building transport network...');
-        new TransportNetwork(worldConfig, terrain);
-      } else {
-        postProgress(60, 'Transport network not available for Voronoi...');
-      }
+      postProgress(60, 'Finding harbor locations...');
+      const harborLocation = generator.findBestHarbor(terrain);
 
-      postProgress(80, 'Finding harbor locations...');
-      generator.findBestHarbor(terrain);
+      postProgress(75, 'Generating settlements...');
+      const { parcels, settlements } = generateSettlementsAndParcels(terrain, worldConfig);
 
       postProgress(95, 'Serializing terrain data...');
-      const serialized = serializeTerrain(terrain);
+      const serialized = serializeTerrain(terrain, parcels, settlements, harborLocation);
 
-      // Transfer buffers for grid (zero-copy), or just post for Voronoi
-      if (serialized.type === 'grid') {
-        self.postMessage(
-          { type: 'TERRAIN_GENERATED', terrain: serialized },
-          {
-            transfer: [
-              serialized.heightBuffer.buffer,
-              serialized.flowBuffer.buffer,
-              serialized.moistureBuffer.buffer,
-            ],
-          }
-        );
-      } else {
-        self.postMessage({ type: 'TERRAIN_GENERATED', terrain: serialized });
-      }
+      self.postMessage({ type: 'TERRAIN_GENERATED', terrain: serialized });
     } catch (error) {
       self.postMessage({
         type: 'ERROR',
