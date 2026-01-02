@@ -1,7 +1,7 @@
 import { useSimulationStore } from '../store/simulation';
 
 export function StatusBar() {
-  const { status, progress, progressStage, terrain, config } = useSimulationStore();
+  const { status, progress, progressStage, terrain, config, pathfindingEnabled, pathfindingStart, currentPath } = useSimulationStore();
 
   const statusText = {
     idle: 'Ready',
@@ -39,6 +39,24 @@ export function StatusBar() {
             <span>Seed: {config.seed}</span>
           </div>
         </>
+      )}
+
+      {pathfindingEnabled && (
+        <div className="status-item">
+          {pathfindingStart !== null ? (
+            <span>Click destination cell...</span>
+          ) : (
+            <span>Click start cell...</span>
+          )}
+        </div>
+      )}
+
+      {currentPath && currentPath.success && (
+        <div className="status-item">
+          <span>
+            Path: {currentPath.path.length} cells, cost: {currentPath.totalCost.toFixed(1)}
+          </span>
+        </div>
       )}
     </div>
   );

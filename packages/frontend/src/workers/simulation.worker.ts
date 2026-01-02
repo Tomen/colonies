@@ -1,4 +1,11 @@
-import { createWorldGenerator, CadastralManager, SettlementManager, SeededRNG } from '@colonies/core';
+import {
+  createWorldGenerator,
+  CadastralManager,
+  SettlementManager,
+  SeededRNG,
+  createTransportNetwork,
+  TransportNetwork,
+} from '@colonies/core';
 import type {
   WorldConfig,
   VoronoiTerrainData,
@@ -8,7 +15,11 @@ import type {
   Parcel,
   Point,
   Settlement,
+  SerializedNetwork,
 } from '@colonies/shared';
+
+// Keep reference to network for pathfinding requests
+let currentNetwork: TransportNetwork | null = null;
 
 // Serialized Voronoi terrain (plain objects, no transfer needed)
 export interface SerializedTerrain {
@@ -20,13 +31,15 @@ export interface SerializedTerrain {
   parcels: Parcel[];
   settlements: Settlement[];
   harborLocation: Point | null;
+  network: SerializedNetwork | null;
 }
 
 function serializeTerrain(
   terrain: VoronoiTerrainData,
   parcels: Parcel[],
   settlements: Settlement[],
-  harborLocation: Point | null
+  harborLocation: Point | null,
+  network: SerializedNetwork | null
 ): SerializedTerrain {
   return {
     type: 'voronoi',
@@ -37,6 +50,7 @@ function serializeTerrain(
     parcels,
     settlements,
     harborLocation,
+    network,
   };
 }
 
@@ -74,7 +88,21 @@ function postProgress(percent: number, stage: string) {
 }
 
 self.onmessage = (e: MessageEvent) => {
-  const { type, config } = e.data;
+  const { type, config, fromCell, toCell } = e.data;
+
+  if (type === 'FIND_PATH') {
+    if (!currentNetwork) {
+      self.postMessage({
+        type: 'PATH_RESULT',
+        path: { success: false, path: [], totalCost: Infinity, edges: [], crossings: [] },
+      });
+      return;
+    }
+
+    const path = currentNetwork.findPath(fromCell as number, toCell as number);
+    self.postMessage({ type: 'PATH_RESULT', path });
+    return;
+  }
 
   if (type === 'GENERATE') {
     try {
@@ -89,11 +117,16 @@ self.onmessage = (e: MessageEvent) => {
       postProgress(60, 'Finding harbor locations...');
       const harborLocation = generator.findBestHarbor(terrain);
 
-      postProgress(75, 'Generating settlements...');
+      postProgress(70, 'Generating settlements...');
       const { parcels, settlements } = generateSettlementsAndParcels(terrain, worldConfig);
 
+      postProgress(85, 'Building transport network...');
+      const network = createTransportNetwork(terrain);
+      currentNetwork = network; // Store for pathfinding requests
+      const serializedNetwork = network.serialize(settlements);
+
       postProgress(95, 'Serializing terrain data...');
-      const serialized = serializeTerrain(terrain, parcels, settlements, harborLocation);
+      const serialized = serializeTerrain(terrain, parcels, settlements, harborLocation, serializedNetwork);
 
       self.postMessage({ type: 'TERRAIN_GENERATED', terrain: serialized });
     } catch (error) {

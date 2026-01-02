@@ -72,6 +72,18 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
       }
     };
 
+    const onMouseDown = (event: MouseEvent) => {
+      // Right-click (button 2) exits pointer lock
+      if (event.button === 2 && isLocked.current) {
+        document.exitPointerLock();
+      }
+    };
+
+    const onContextMenu = (event: MouseEvent) => {
+      // Prevent context menu on canvas
+      event.preventDefault();
+    };
+
     const onMouseMove = (event: MouseEvent) => {
       if (!isLocked.current) return;
 
@@ -157,6 +169,8 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
 
     document.addEventListener('pointerlockchange', onPointerLockChange);
     canvas.addEventListener('click', onClick);
+    canvas.addEventListener('contextmenu', onContextMenu);
+    document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
@@ -164,6 +178,8 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
     return () => {
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       canvas.removeEventListener('click', onClick);
+      canvas.removeEventListener('contextmenu', onContextMenu);
+      document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
@@ -174,7 +190,7 @@ export function FlyControls({ moveSpeed = 300, lookSpeed = 0.002 }: FlyControlsP
     if (!isLocked.current) return;
 
     const state = moveState.current;
-    const speedMultiplier = state.slow ? 0.1 : 1;
+    const speedMultiplier = state.slow ? 0.01 : 1;
     const speed = moveSpeed * delta * speedMultiplier;
 
     // Forward/backward - fly in camera's look direction (including pitch)

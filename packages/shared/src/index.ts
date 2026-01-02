@@ -4,10 +4,15 @@ export type {
   River,
   WorldConfig,
   Settlement,
+  // Network types
+  EdgeType,
   RiverCrossing,
   NetworkEdge,
-  CostField,
+  NetworkConfig,
   PathResult,
+  SettlementPath,
+  SerializedNetwork,
+  CostField,
   // Voronoi types
   VoronoiCell,
   VoronoiEdge,

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSimulationStore, type RiverMode, type HeightMode, type TextureMode } from '../store/simulation';
+import { useSimulationStore, type RiverMode, type HeightMode, type TextureMode, type RiverCarvingMode, type NetworkMode } from '../store/simulation';
 
 type Tab = 'rendering' | 'generator';
 
@@ -13,6 +13,8 @@ export function ControlPanel() {
     visibleLayers,
     setVisibleLayer,
     resetCamera,
+    pathfindingEnabled,
+    setPathfindingEnabled,
   } = useSimulationStore();
 
   const isGenerating = status === 'generating';
@@ -251,19 +253,40 @@ export function ControlPanel() {
           <div className="control-group">
             <label>River Carving</label>
             <div className="pill-toggle">
-              <button
-                className={`pill-option ${!visibleLayers.carveRivers ? 'active' : ''}`}
-                onClick={() => setVisibleLayer('carveRivers', false)}
-              >
-                Off
-              </button>
-              <button
-                className={`pill-option ${visibleLayers.carveRivers ? 'active' : ''}`}
-                onClick={() => setVisibleLayer('carveRivers', true)}
-              >
-                On
-              </button>
+              {(['off', 'on', 'debug'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`pill-option ${visibleLayers.carveRivers === mode ? 'active' : ''}`}
+                  onClick={() => setVisibleLayer('carveRivers', mode as RiverCarvingMode)}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
             </div>
+          </div>
+
+          <div className="control-group">
+            <label>Network</label>
+            <div className="pill-toggle">
+              {(['off', 'cost', 'paths'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`pill-option ${visibleLayers.networkMode === mode ? 'active' : ''}`}
+                  onClick={() => setVisibleLayer('networkMode', mode as NetworkMode)}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="layer-toggles">
+            <button
+              className={`layer-toggle ${pathfindingEnabled ? 'active' : ''}`}
+              onClick={() => setPathfindingEnabled(!pathfindingEnabled)}
+            >
+              Click-to-Path
+            </button>
           </div>
 
           <button className="reset-camera-btn" onClick={resetCamera}>

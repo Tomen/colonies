@@ -3,6 +3,8 @@ import { VoronoiTerrainMesh } from './VoronoiTerrainMesh';
 import { VoronoiDebugMesh } from './VoronoiDebugMesh';
 import { ParcelMesh } from './ParcelMesh';
 import { SettlementMarkers } from './SettlementMarkers';
+import { NetworkMesh } from './NetworkMesh';
+import { CellClickHandler } from './CellClickHandler';
 
 export function TerrainRenderer() {
   const terrain = useSimulationStore((s) => s.terrain);
@@ -12,6 +14,8 @@ export function TerrainRenderer() {
   const riverMode = useSimulationStore((s) => s.visibleLayers.riverMode);
   const showParcels = useSimulationStore((s) => s.visibleLayers.parcels);
   const showSettlements = useSimulationStore((s) => s.visibleLayers.settlements);
+  const networkMode = useSimulationStore((s) => s.visibleLayers.networkMode);
+  const currentPath = useSimulationStore((s) => s.currentPath);
 
   if (!terrain) {
     return null;
@@ -43,6 +47,16 @@ export function TerrainRenderer() {
       {showSettlements && settlements.length > 0 && (
         <SettlementMarkers settlements={settlements} />
       )}
+      {(networkMode !== 'off' || currentPath) && terrain.network && (
+        <NetworkMesh
+          cells={terrain.cells}
+          edges={terrain.network.edges}
+          settlementPaths={terrain.network.settlementPaths}
+          currentPath={currentPath}
+          mode={networkMode}
+        />
+      )}
+      <CellClickHandler cells={terrain.cells} bounds={terrain.bounds} />
     </>
   );
 }

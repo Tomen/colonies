@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { WorldConfig, Settlement, NetworkEdge } from '@colonies/shared';
+import type { WorldConfig, Settlement, NetworkEdge, PathResult } from '@colonies/shared';
 import { DEFAULT_CONFIG } from '@colonies/shared';
 import type { SerializedTerrain } from '../workers/simulation.worker';
 
@@ -11,16 +11,19 @@ export type SimulationStatus = 'idle' | 'generating' | 'ready' | 'running' | 'pa
 export type RiverMode = 'off' | 'line' | 'full';
 export type HeightMode = 'flat' | '3d';
 export type TextureMode = 'normal' | 'voronoi';
+export type RiverCarvingMode = 'off' | 'on' | 'debug';
+export type NetworkMode = 'off' | 'cost' | 'paths';
 
 interface VisibleLayers {
   terrain: boolean;
   heightMode: HeightMode;
   textureMode: TextureMode;
-  carveRivers: boolean;
+  carveRivers: RiverCarvingMode;
   riverMode: RiverMode;
   roads: boolean;
   settlements: boolean;
   parcels: boolean;
+  networkMode: NetworkMode;
 }
 
 export interface CameraState {
@@ -54,6 +57,11 @@ interface SimulationState {
   visibleLayers: VisibleLayers;
   camera: CameraState;
 
+  // Pathfinding interaction state
+  pathfindingEnabled: boolean;
+  pathfindingStart: number | null; // cell id
+  currentPath: PathResult | null;
+
   // Actions
   initWorker: () => void;
   setCameraState: (camera: CameraState) => void;
@@ -64,17 +72,22 @@ interface SimulationState {
     layer: K,
     value: SimulationState['visibleLayers'][K]
   ) => void;
+  setPathfindingEnabled: (enabled: boolean) => void;
+  setPathfindingStart: (cellId: number | null) => void;
+  setCurrentPath: (path: PathResult | null) => void;
+  findPath: (fromCell: number, toCell: number) => void;
 }
 
 const DEFAULT_VISIBLE_LAYERS: VisibleLayers = {
   terrain: true,
   heightMode: '3d',
   textureMode: 'normal',
-  carveRivers: true,
+  carveRivers: 'on',
   riverMode: 'full',
   roads: true,
   settlements: true,
   parcels: true,
+  networkMode: 'off',
 };
 
 export const useSimulationStore = create<SimulationState>()(
@@ -96,6 +109,11 @@ export const useSimulationStore = create<SimulationState>()(
 
       visibleLayers: { ...DEFAULT_VISIBLE_LAYERS },
       camera: { ...DEFAULT_CAMERA },
+
+      // Pathfinding state
+      pathfindingEnabled: false,
+      pathfindingStart: null,
+      currentPath: null,
 
       // Actions
       setCameraState: (camera) => {
@@ -135,14 +153,23 @@ export const useSimulationStore = create<SimulationState>()(
               });
               break;
 
+            case 'PATH_RESULT':
+              set({ currentPath: event.path });
+              break;
+
             case 'ERROR':
+              console.error('[Simulation Worker]', event.message);
               set({ status: 'error', error: event.message });
               break;
           }
         };
 
         worker.onerror = (e) => {
-          set({ status: 'error', error: e.message });
+          const message = e.message || e.error?.message || 'Unknown worker error';
+          const location = e.filename ? ` at ${e.filename}:${e.lineno}:${e.colno}` : '';
+          console.error('[Simulation Worker] Uncaught error:', message + location);
+          if (e.error) console.error(e.error);
+          set({ status: 'error', error: message });
         };
 
         set({ worker, status: 'idle' });
@@ -173,6 +200,28 @@ export const useSimulationStore = create<SimulationState>()(
         set((state) => ({
           visibleLayers: { ...state.visibleLayers, [layer]: value },
         }));
+      },
+
+      setPathfindingEnabled: (enabled) => {
+        set({
+          pathfindingEnabled: enabled,
+          pathfindingStart: null,
+          currentPath: null,
+        });
+      },
+
+      setPathfindingStart: (cellId) => {
+        set({ pathfindingStart: cellId });
+      },
+
+      setCurrentPath: (path) => {
+        set({ currentPath: path });
+      },
+
+      findPath: (fromCell, toCell) => {
+        const { worker } = get();
+        if (!worker) return;
+        worker.postMessage({ type: 'FIND_PATH', fromCell, toCell });
       },
     }),
     {

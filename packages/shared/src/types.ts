@@ -166,35 +166,107 @@ export interface Settlement {
   claimedCells: number[]; // All terrain cells claimed by this settlement
 }
 
+// ============================================================================
+// Network Layer (Transport & Pathfinding)
+// ============================================================================
+
+/**
+ * Edge types for the transport network.
+ * Progression: none → trail → road → turnpike (via usage)
+ */
+export type EdgeType = 'none' | 'trail' | 'road' | 'turnpike';
+
+/**
+ * A river crossing point where a network edge crosses a river.
+ * Progression: ford → ferry → bridge (via usage)
+ */
 export interface RiverCrossing {
   id: string;
-  position: Point;
-  riverWidth: number;
+  edgeId: string; // Parent network edge
+  position: Point; // Midpoint of crossing
+  voronoiEdgeId: number; // The VoronoiEdge this crosses
+  riverWidth: number; // Derived from flow accumulation (log scale)
+  maxFlow: number; // Flow accumulation at crossing
   status: 'ford' | 'ferry' | 'bridge';
   usage: number;
 }
 
+/**
+ * A network edge between two adjacent Voronoi cells.
+ * Created eagerly for all cell adjacencies at world gen.
+ */
 export interface NetworkEdge {
   id: string;
-  from: Point;
-  to: Point;
-  type: 'trail' | 'road' | 'turnpike' | 'river' | 'coastal' | 'ferry' | 'bridge';
-  cost: number;
-  usage: number;
-  crossings: RiverCrossing[];
+  fromCell: number; // Voronoi cell ID
+  toCell: number; // Voronoi cell ID
+  type: EdgeType;
+  baseCost: number; // Distance × terrain factors (immutable)
+  currentCost: number; // baseCost × road multiplier (changes with upgrades)
+  usage: number; // Accumulated traffic
+  crossings: RiverCrossing[]; // River crossings on this edge
 }
 
+/**
+ * Configuration for the transport network.
+ */
+export interface NetworkConfig {
+  // Cost factors
+  baseSlopeCost: number; // Cost per meter elevation difference (default: 0.5)
+  altitudeCost: number; // Cost per meter of average elevation (default: 0.01)
+  waterCost: number; // Cost multiplier for water cells (default: 100)
+  riverCrossingPenalty: number; // Additional cost per river crossing (default: 10)
+
+  // Road type cost multipliers
+  trailCostMultiplier: number; // 1.0 - trails don't reduce cost
+  roadCostMultiplier: number; // 0.5 - roads halve cost
+  turnpikeCostMultiplier: number; // 0.2 - turnpikes are fast
+
+  // Upgrade thresholds (usage required)
+  trailThreshold: number; // 50 - usage to create trail from nothing
+  roadThreshold: number; // 100 - usage to upgrade trail → road
+  turnpikeThreshold: number; // 500 - usage to upgrade road → turnpike
+  bridgeThreshold: number; // 200 - usage to upgrade ferry → bridge
+
+  // Constraints
+  maxBridgeWidth: number; // 5 - max river width (log scale) for bridge
+  minRiverFlow: number; // 50 - flow accumulation to count as river
+}
+
+/**
+ * Result of A* pathfinding between two cells.
+ */
+export interface PathResult {
+  success: boolean;
+  path: number[]; // Sequence of cell IDs
+  totalCost: number;
+  edges: NetworkEdge[]; // Edges traversed
+  crossings: RiverCrossing[]; // River crossings encountered
+}
+
+/**
+ * Pre-computed path between two settlements (for visualization).
+ */
+export interface SettlementPath {
+  fromSettlement: string; // Settlement ID
+  toSettlement: string; // Settlement ID
+  path: number[]; // Cell IDs
+  cost: number;
+}
+
+/**
+ * Serialized network data for transfer to frontend.
+ */
+export interface SerializedNetwork {
+  edges: NetworkEdge[];
+  crossings: RiverCrossing[];
+  settlementPaths: SettlementPath[];
+}
+
+/** @deprecated Use cell-based NetworkEdge instead */
 export interface CostField {
   cost: number[][];
   isWater: boolean[][];
   isRiver: boolean[][];
-}
-
-export interface PathResult {
-  path: Point[];
-  totalCost: number;
-  crossings: RiverCrossing[];
-  success: boolean;
 }
 
 // ============================================================================

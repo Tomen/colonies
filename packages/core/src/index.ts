@@ -5,8 +5,12 @@ export type {
   Settlement,
   RiverCrossing,
   NetworkEdge,
+  NetworkConfig,
+  EdgeType,
   CostField,
   PathResult,
+  SettlementPath,
+  SerializedNetwork,
   // Voronoi types
   VoronoiTerrainData,
   VoronoiCell,
@@ -28,6 +32,14 @@ export { createWorldGenerator } from './generator-factory.js';
 export { GrowthManager } from './growth.js';
 export { CadastralManager } from './cadastral.js';
 export { SettlementManager } from './settlements.js';
+
+// Transport network
+export { PriorityQueue } from './priority-queue.js';
+export {
+  TransportNetwork,
+  createTransportNetwork,
+  DEFAULT_NETWORK_CONFIG,
+} from './transport.js';
 
 // Polygon utilities
 export {

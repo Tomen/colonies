@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import type { SerializedTerrain } from '../store/simulation';
+import type { SerializedTerrain, RiverCarvingMode } from '../store/simulation';
 import type { Parcel, VoronoiCell } from '@colonies/shared';
 import {
   useTerrainHeightStore,
@@ -15,7 +15,7 @@ interface VoronoiDebugMeshProps {
   terrain: SerializedTerrain;
   parcels: Parcel[];
   useHeight: boolean;
-  carveRivers: boolean;
+  carveRivers: RiverCarvingMode;
 }
 
 const CELL_EDGE_COLOR = 0x000000; // Black
@@ -49,8 +49,9 @@ export function VoronoiDebugMesh({ terrain, parcels, useHeight, carveRivers }: V
       };
 
       // Local helper for cell Y with river carving (for cell edges/centroids)
+      const shouldCarve = carveRivers === 'on' || carveRivers === 'debug';
       const getCarveDepth = (cell: VoronoiCell): number => {
-        if (!carveRivers || !useHeight) return 0;
+        if (!shouldCarve || !useHeight) return 0;
         if (!cell.isLand || cell.flowAccumulation < RIVER_THRESHOLD) return 0;
         return Math.min(
           Math.log(cell.flowAccumulation / RIVER_THRESHOLD + 1) * 8,
