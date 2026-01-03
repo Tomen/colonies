@@ -243,7 +243,7 @@ export class SettlementManager {
   }
 
   /**
-   * Assign land uses to parcels based on distance from settlement center.
+   * Assign land uses to parcels based on distance from settlement center and biome.
    */
   private assignLandUses(
     coreCellId: number,
@@ -254,6 +254,7 @@ export class SettlementManager {
 
     for (const parcel of parcels) {
       const isCore = parcel.terrainCellId === coreCellId;
+      const biome = this.cadastral.getCellBiome(parcel.terrainCellId);
 
       // Distance from settlement center
       const dx = parcel.centroid.x - coreCenter.x;
@@ -269,8 +270,17 @@ export class SettlementManager {
         // Inner ring: mix of residential and commercial
         landUse = this.rng.next() < 0.3 ? 'commercial' : 'residential';
       } else {
-        // Outer rings: agricultural
-        landUse = this.rng.next() < 0.7 ? 'field' : 'pasture';
+        // Outer rings: land use based on biome
+        if (biome === 'woods') {
+          // Forested areas: lumberjack operations
+          landUse = 'forest';
+        } else if (biome === 'mountains') {
+          // Mountain areas: grazing only
+          landUse = 'pasture';
+        } else {
+          // Plains and other: farmland
+          landUse = this.rng.next() < 0.7 ? 'field' : 'pasture';
+        }
       }
 
       this.cadastral.setLandUse(parcel.id, landUse);

@@ -17,6 +17,7 @@ export type {
   VoronoiEdge,
   TerrainResult,
   ITerrainGenerator,
+  Lake,
   // Cadastral types
   LandUse,
   Parcel,
@@ -34,7 +35,8 @@ export { CadastralManager } from './cadastral.js';
 export { SettlementManager } from './settlements.js';
 
 // Transport network
-export { PriorityQueue } from './priority-queue.js';
+export { PriorityQueue, MinHeap } from './priority-queue.js';
+export { UnionFind } from './union-find.js';
 export {
   TransportNetwork,
   createTransportNetwork,

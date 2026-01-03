@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSimulationStore, type RiverMode, type HeightMode, type TextureMode, type RiverCarvingMode, type NetworkMode } from '../store/simulation';
+import { useSimulationStore, type RiverMode, type HeightMode, type TextureMode, type WireframeMode, type RiverCarvingMode, type NetworkMode } from '../store/simulation';
 
 type Tab = 'rendering' | 'generator';
 
@@ -53,14 +53,14 @@ export function ControlPanel() {
             <div className="control-row">
               <input
                 type="range"
-                min="100"
-                max="1000"
-                step="100"
+                min="1000"
+                max="20000"
+                step="1000"
                 value={config.mapSize}
                 onChange={(e) => setConfig({ mapSize: parseInt(e.target.value) })}
                 disabled={isGenerating}
               />
-              <span>{config.mapSize}</span>
+              <span>{config.mapSize}m</span>
             </div>
           </div>
 
@@ -86,13 +86,13 @@ export function ControlPanel() {
               <input
                 type="range"
                 min="100"
-                max="500"
-                step="25"
-                value={config.peakElevation ?? 300}
+                max="3000"
+                step="100"
+                value={config.peakElevation ?? 1500}
                 onChange={(e) => setConfig({ peakElevation: parseInt(e.target.value) })}
                 disabled={isGenerating}
               />
-              <span>{config.peakElevation ?? 300}m</span>
+              <span>{config.peakElevation ?? 1500}m</span>
             </div>
           </div>
 
@@ -133,9 +133,9 @@ export function ControlPanel() {
             <div className="control-row">
               <input
                 type="range"
-                min="20"
+                min="0"
                 max="200"
-                step="10"
+                step="5"
                 value={config.riverThreshold ?? 50}
                 onChange={(e) => setConfig({ riverThreshold: parseInt(e.target.value) })}
                 disabled={isGenerating}
@@ -157,6 +157,110 @@ export function ControlPanel() {
                 disabled={isGenerating}
               />
               <span>{config.islandNoiseOctaves ?? 4}</span>
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Cell Count</label>
+            <div className="control-row">
+              <input
+                type="range"
+                min="1000"
+                max="20000"
+                step="1000"
+                value={config.voronoiCellCount ?? 10000}
+                onChange={(e) => setConfig({ voronoiCellCount: parseInt(e.target.value) })}
+                disabled={isGenerating}
+              />
+              <span>{config.voronoiCellCount ?? 10000}</span>
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Mountain Peaks</label>
+            <div className="control-row">
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={config.mountainPeakCount ?? 5}
+                onChange={(e) => setConfig({ mountainPeakCount: parseInt(e.target.value) })}
+                disabled={isGenerating}
+              />
+              <span>{config.mountainPeakCount ?? 5}</span>
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Mountain Ridges</label>
+            <div className="pill-toggle">
+              <button
+                className={`pill-option ${config.ridgeEnabled !== false ? 'active' : ''}`}
+                onClick={() => setConfig({ ridgeEnabled: true })}
+                disabled={isGenerating}
+              >
+                On
+              </button>
+              <button
+                className={`pill-option ${config.ridgeEnabled === false ? 'active' : ''}`}
+                onClick={() => setConfig({ ridgeEnabled: false })}
+                disabled={isGenerating}
+              >
+                Off
+              </button>
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Ridge Width</label>
+            <div className="control-row">
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={config.ridgeWidth ?? 3}
+                onChange={(e) => setConfig({ ridgeWidth: parseInt(e.target.value) })}
+                disabled={isGenerating}
+              />
+              <span>{config.ridgeWidth ?? 3}</span>
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Hill Amplitude</label>
+            <div className="control-row">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={config.hillNoiseAmplitude ?? 0.4}
+                onChange={(e) => setConfig({ hillNoiseAmplitude: parseFloat(e.target.value) })}
+                disabled={isGenerating}
+              />
+              <span>{((config.hillNoiseAmplitude ?? 0.4) * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Lakes</label>
+            <div className="pill-toggle">
+              <button
+                className={`pill-option ${config.fillSpillEnabled !== false ? 'active' : ''}`}
+                onClick={() => setConfig({ fillSpillEnabled: true })}
+                disabled={isGenerating}
+              >
+                On
+              </button>
+              <button
+                className={`pill-option ${config.fillSpillEnabled === false ? 'active' : ''}`}
+                onClick={() => setConfig({ fillSpillEnabled: false })}
+                disabled={isGenerating}
+              >
+                Off
+              </button>
             </div>
           </div>
 
@@ -202,11 +306,26 @@ export function ControlPanel() {
           <div className="control-group">
             <label>Textures</label>
             <div className="pill-toggle">
-              {(['normal', 'voronoi'] as const).map((mode) => (
+              {(['normal', 'biome', 'moisture', 'blank'] as const).map((mode) => (
                 <button
                   key={mode}
                   className={`pill-option ${visibleLayers.textureMode === mode ? 'active' : ''}`}
                   onClick={() => setVisibleLayer('textureMode', mode as TextureMode)}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="control-group">
+            <label>Wireframe</label>
+            <div className="pill-toggle">
+              {(['off', 'cells'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`pill-option ${visibleLayers.wireframeMode === mode ? 'active' : ''}`}
+                  onClick={() => setVisibleLayer('wireframeMode', mode as WireframeMode)}
                 >
                   {mode.charAt(0).toUpperCase() + mode.slice(1)}
                 </button>

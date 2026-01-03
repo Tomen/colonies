@@ -2,16 +2,16 @@
  * Cadastral layer - manages parcels and land use.
  *
  * Provides human-scale lots within Voronoi terrain cells.
- * Each Voronoi cell (~100m) is subdivided into 10-50 smaller parcels.
+ * Each Voronoi cell (~100m) contains a few randomly-placed rectangular parcels.
  * Parcels are generated on-demand when settlements claim terrain cells.
  */
 
-import { Delaunay } from 'd3-delaunay';
 import type {
   Point,
   Rect,
   Parcel,
   LandUse,
+  Biome,
   VoronoiTerrainData,
 } from '@colonies/shared';
 import { SeededRNG } from './rng.js';
@@ -21,20 +21,19 @@ type RNG = SeededRNG;
 import {
   pointInPolygon,
   polygonArea,
-  polygonCentroid,
   polygonBounds,
-  generatePointsInPolygon,
 } from './polygon-utils.js';
 
 /**
- * Target parcel size in square meters for Voronoi subdivision.
+ * Target parcel size in square meters.
+ * Parcels are squares of this area placed randomly in cells.
  */
-const TARGET_PARCEL_SIZE = 500; // ~22m x 22m lots
+const TARGET_PARCEL_SIZE = 2000; // ~45m x 45m lots
 
 /**
- * Minimum parcel area to keep after clipping (avoid tiny fragments).
+ * Margin between adjacent parcels (creates gaps for streets/paths).
  */
-const MIN_PARCEL_AREA = 50;
+const PARCEL_MARGIN = 3; // 3m gap
 
 /**
  * Spatial index using a grid of buckets for fast point queries.
@@ -210,8 +209,8 @@ export class CadastralManager {
   }
 
   /**
-   * Subdivide a Voronoi cell into multiple parcels using recursive Voronoi.
-   * Voronoi cells are ~100m, so we subdivide into 10-50 smaller lots.
+   * Subdivide a Voronoi cell into rectangular parcels using random placement.
+   * Places non-overlapping squares with margins between them.
    */
   private subdivideVoronoiCell(
     cellId: number,
@@ -228,189 +227,140 @@ export class CadastralManager {
     }
 
     const cellArea = polygonArea(cellVertices);
+    const bounds = polygonBounds(cellVertices);
+    const cellWidth = bounds.maxX - bounds.minX;
+    const cellHeight = bounds.maxY - bounds.minY;
+    const cellMinDim = Math.min(cellWidth, cellHeight);
+
+    // Calculate parcel size - use TARGET_PARCEL_SIZE but cap to fit in cell
+    // Parcel should be at most 40% of cell's smallest dimension
+    const maxParcelSize = cellMinDim * 0.4;
+    const idealSize = Math.sqrt(TARGET_PARCEL_SIZE);
+    const size = Math.min(idealSize, maxParcelSize);
+    const halfSize = size / 2;
+
+    // Skip if cell is too small for any meaningful parcel
+    if (size < 2) {
+      return [];
+    }
+
+    const parcelArea = size * size;
     const targetCount = Math.max(1, Math.floor(cellArea / TARGET_PARCEL_SIZE));
 
-    if (targetCount <= 1) {
-      // Cell is small enough to be a single parcel
-      const parcel: Parcel = {
-        id: `p${this.nextParcelId++}`,
-        vertices: [...cellVertices],
-        centroid: polygonCentroid(cellVertices),
-        area: cellArea,
-        terrainCellId: cellId,
-        owner: null,
-        landUse: 'wilderness',
-      };
-      return [parcel];
-    }
-
-    // Generate random points inside the cell for sub-Voronoi
-    const seedPoints = generatePointsInPolygon(
-      cellVertices,
-      targetCount,
-      this.rng
-    );
-
-    if (seedPoints.length < 2) {
-      // Fallback: single parcel
-      const parcel: Parcel = {
-        id: `p${this.nextParcelId++}`,
-        vertices: [...cellVertices],
-        centroid: polygonCentroid(cellVertices),
-        area: cellArea,
-        terrainCellId: cellId,
-        owner: null,
-        landUse: 'wilderness',
-      };
-      return [parcel];
-    }
-
-    // Create sub-Voronoi diagram
-    const bounds = polygonBounds(cellVertices);
-    const delaunay = Delaunay.from(seedPoints.map((p) => [p.x, p.y]));
-    const voronoi = delaunay.voronoi([
-      bounds.minX,
-      bounds.minY,
-      bounds.maxX,
-      bounds.maxY,
-    ]);
-
     const parcels: Parcel[] = [];
+    const placedRects: Rect[] = [];
+    const maxAttempts = targetCount * 20;
 
-    for (let i = 0; i < seedPoints.length; i++) {
-      // Get the Voronoi cell polygon for this seed point
-      const polygon = voronoi.cellPolygon(i);
-      if (!polygon) continue;
+    for (let attempt = 0; attempt < maxAttempts && parcels.length < targetCount; attempt++) {
+      // Pick random point inside cell
+      const point = this.randomPointInPolygon(cellVertices);
+      if (!point) continue;
 
-      // Convert to Point[] (polygon is [x,y][] with last = first)
-      const subVertices: Point[] = [];
-      for (let j = 0; j < polygon.length - 1; j++) {
-        subVertices.push({ x: polygon[j][0], y: polygon[j][1] });
+      // Random rotation for the parcel (building will use this)
+      // 70% cardinal with variation, 30% fully random
+      let rotation: number;
+      if (this.rng.next() < 0.7) {
+        const baseRotation = Math.floor(this.rng.next() * 4) * (Math.PI / 2);
+        const variation = (this.rng.next() - 0.5) * 0.35; // +/- ~10 degrees
+        rotation = baseRotation + variation;
+      } else {
+        rotation = this.rng.next() * Math.PI * 2;
       }
 
-      // Clip to parent cell boundary
-      const clipped = this.clipToCell(subVertices, cellVertices);
-      if (clipped.length < 3) continue;
+      // Create rotated square vertices
+      const vertices = this.createRotatedSquare(point, halfSize, rotation);
 
-      const clippedArea = polygonArea(clipped);
-      if (clippedArea < MIN_PARCEL_AREA) continue;
+      // Check all corners are inside cell
+      if (!vertices.every(v => pointInPolygon(v, cellVertices))) continue;
 
-      const parcel: Parcel = {
+      // Check overlap with existing parcels using bounding box (with margin)
+      const rect = this.getRotatedBounds(vertices);
+      if (this.overlapsAny(rect, placedRects, PARCEL_MARGIN)) continue;
+
+      placedRects.push(rect);
+      parcels.push({
         id: `p${this.nextParcelId++}`,
-        vertices: clipped,
-        centroid: polygonCentroid(clipped),
-        area: clippedArea,
+        vertices,
+        centroid: point,
+        area: parcelArea,
+        rotation,
         terrainCellId: cellId,
         owner: null,
         landUse: 'wilderness',
-      };
-
-      parcels.push(parcel);
-    }
-
-    // If clipping produced no valid parcels, fall back to single parcel
-    if (parcels.length === 0) {
-      const parcel: Parcel = {
-        id: `p${this.nextParcelId++}`,
-        vertices: [...cellVertices],
-        centroid: polygonCentroid(cellVertices),
-        area: cellArea,
-        terrainCellId: cellId,
-        owner: null,
-        landUse: 'wilderness',
-      };
-      return [parcel];
+      });
     }
 
     return parcels;
   }
 
   /**
-   * Clip a polygon to the parent cell boundary.
-   * Uses Sutherland-Hodgman for convex cells, or point-in-polygon filtering.
+   * Pick a random point inside a polygon using rejection sampling.
    */
-  private clipToCell(subject: Point[], clipBoundary: Point[]): Point[] {
-    // Simple approach: keep vertices that are inside, and find intersections
-    // For MVP, we use a simplified clipping that works well for mostly-convex shapes
-
-    const result: Point[] = [];
-    const n = subject.length;
-
-    for (let i = 0; i < n; i++) {
-      const current = subject[i];
-      const next = subject[(i + 1) % n];
-
-      const currentInside = pointInPolygon(current, clipBoundary);
-      const nextInside = pointInPolygon(next, clipBoundary);
-
-      if (currentInside) {
-        result.push(current);
-      }
-
-      // If edge crosses boundary, find intersection
-      if (currentInside !== nextInside) {
-        const intersection = this.findBoundaryIntersection(
-          current,
-          next,
-          clipBoundary
-        );
-        if (intersection) {
-          result.push(intersection);
-        }
-      }
+  private randomPointInPolygon(vertices: Point[]): Point | null {
+    const bounds = polygonBounds(vertices);
+    for (let i = 0; i < 100; i++) {
+      const x = bounds.minX + this.rng.next() * (bounds.maxX - bounds.minX);
+      const y = bounds.minY + this.rng.next() * (bounds.maxY - bounds.minY);
+      const point = { x, y };
+      if (pointInPolygon(point, vertices)) return point;
     }
-
-    return result;
-  }
-
-  /**
-   * Find where a line segment intersects a polygon boundary.
-   */
-  private findBoundaryIntersection(
-    a: Point,
-    b: Point,
-    boundary: Point[]
-  ): Point | null {
-    const n = boundary.length;
-
-    for (let i = 0; i < n; i++) {
-      const c = boundary[i];
-      const d = boundary[(i + 1) % n];
-
-      const intersection = this.lineSegmentIntersection(a, b, c, d);
-      if (intersection) {
-        return intersection;
-      }
-    }
-
     return null;
   }
 
   /**
-   * Find intersection of two line segments.
+   * Create a rotated square centered at a point.
    */
-  private lineSegmentIntersection(
-    a: Point,
-    b: Point,
-    c: Point,
-    d: Point
-  ): Point | null {
-    const denom = (a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x);
-    if (Math.abs(denom) < 1e-10) return null;
+  private createRotatedSquare(center: Point, halfSize: number, rotation: number): Point[] {
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
 
-    const t =
-      ((a.x - c.x) * (c.y - d.y) - (a.y - c.y) * (c.x - d.x)) / denom;
-    const u =
-      -((a.x - b.x) * (a.y - c.y) - (a.y - b.y) * (a.x - c.x)) / denom;
+    // Corners relative to center (before rotation)
+    const corners = [
+      { x: -halfSize, y: -halfSize },
+      { x: halfSize, y: -halfSize },
+      { x: halfSize, y: halfSize },
+      { x: -halfSize, y: halfSize },
+    ];
 
-    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
-      return {
-        x: a.x + t * (b.x - a.x),
-        y: a.y + t * (b.y - a.y),
-      };
+    // Rotate and translate each corner
+    return corners.map(c => ({
+      x: center.x + c.x * cos - c.y * sin,
+      y: center.y + c.x * sin + c.y * cos,
+    }));
+  }
+
+  /**
+   * Get axis-aligned bounding box of a rotated polygon.
+   */
+  private getRotatedBounds(vertices: Point[]): Rect {
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    for (const v of vertices) {
+      minX = Math.min(minX, v.x);
+      minY = Math.min(minY, v.y);
+      maxX = Math.max(maxX, v.x);
+      maxY = Math.max(maxY, v.y);
     }
 
-    return null;
+    return { minX, minY, maxX, maxY };
+  }
+
+  /**
+   * Check if a rectangle overlaps any existing rectangles (with margin).
+   */
+  private overlapsAny(rect: Rect, others: Rect[], margin: number): boolean {
+    for (const other of others) {
+      if (
+        rect.minX - margin < other.maxX &&
+        rect.maxX + margin > other.minX &&
+        rect.minY - margin < other.maxY &&
+        rect.maxY + margin > other.minY
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ============================================================================
@@ -448,6 +398,14 @@ export class CadastralManager {
   isLandCell(cellId: number): boolean {
     const cell = this.terrain.cells[cellId];
     return cell?.isLand ?? false;
+  }
+
+  /**
+   * Get the biome of a terrain cell.
+   */
+  getCellBiome(cellId: number): Biome {
+    const cell = this.terrain.cells[cellId];
+    return cell?.biome ?? 'plains';
   }
 
   /**

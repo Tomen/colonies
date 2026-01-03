@@ -9,6 +9,7 @@ Project progress and implementation milestones.
 | Layer | Status | Documentation |
 |-------|--------|---------------|
 | Physical Layer | Complete | [world/01_physical_layer/](world/01_physical_layer/README.md) |
+| Biome System | Complete | [world/world.md#biomes](world/world.md) |
 | Cadastral Layer | Complete | [world/world.md#cadastral-layer](world/world.md) |
 | Network Layer | Complete | [world/02_network_layer/](world/02_network_layer/README.md) |
 | Settlement Seeding | Complete | [world/world.md#settlements--urbanization](world/world.md) |
@@ -24,6 +25,7 @@ Project progress and implementation milestones.
 | Web Worker | Complete | Background simulation |
 | Control Panel | Complete | Config sliders, generate button |
 | Layer Toggles | Complete | Show/hide terrain, rivers, parcels, settlements, buildings |
+| Texture Modes | Complete | Normal (with woods influence), Biome, Moisture, Blank |
 | Network Visualization | Complete | Cost heatmap, settlement paths, click-to-path |
 | River Rendering | Complete | V-shaped carved channels with flow-scaled widths ([docs](frontend/river-rendering.md)) |
 | Buildings & Streets | Complete | Procedural 3D buildings with roofs, street ribbons |

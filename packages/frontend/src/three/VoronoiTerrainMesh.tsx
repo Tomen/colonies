@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import type { SerializedTerrain, RiverMode, TextureMode, RiverCarvingMode } from '../store/simulation';
-import type { VoronoiCell } from '@colonies/shared';
+import type { SerializedTerrain, RiverMode, TextureMode, WireframeMode, RiverCarvingMode } from '../store/simulation';
+import type { VoronoiCell, Biome } from '@colonies/shared';
 import {
   useTerrainHeightStore,
   buildCellHeights,
@@ -17,6 +17,7 @@ interface VoronoiTerrainMeshProps {
   riverMode: RiverMode;
   useHeight: boolean;
   textureMode: TextureMode;
+  wireframeMode: WireframeMode;
 }
 
 // Color palette matching grid renderer
@@ -29,7 +30,21 @@ const PEAK_COLOR = new THREE.Color(0xffffff);
 const RIVER_COLOR = new THREE.Color(0x3498db);
 const VORONOI_COLOR = new THREE.Color(0xcccccc); // Light gray for voronoi mode
 
-const RIVER_THRESHOLD = 50;
+// Biome-based color palette
+const BIOME_COLORS: Record<Biome, THREE.Color> = {
+  sea: new THREE.Color(0x1a5276),       // Dark blue
+  lake: new THREE.Color(0x2980b9),      // Light blue
+  river: new THREE.Color(0x3498db),     // River blue
+  plains: new THREE.Color(0xd4a574),    // Tan/wheat
+  woods: new THREE.Color(0x228b22),     // Forest green
+  mountains: new THREE.Color(0x808080), // Gray
+};
+
+// Moisture gradient colors
+const MOISTURE_DRY = new THREE.Color(0xd2b48c);  // Tan
+const MOISTURE_WET = new THREE.Color(0x006400);  // Dark green
+
+const RIVER_THRESHOLD = 25;
 
 // V-shaped channel parameters (base values, scaled by flow)
 const W_O_BASE = 4; // Base outer width: distance between bank lines
@@ -47,19 +62,67 @@ function darkenColor(color: THREE.Color, factor: number): THREE.Color {
   return color.clone().multiplyScalar(1 - factor);
 }
 
+// Woods color for blending into normal terrain
+const WOODS_BLEND_COLOR = new THREE.Color(0x2d5a27); // Dark forest green
+
 function getTerrainColor(cell: VoronoiCell, maxElevation: number): THREE.Color {
   if (!cell.isLand) return OCEAN_COLOR;
   if (cell.isCoast) return COAST_COLOR;
 
   const t = Math.min(cell.elevation / maxElevation, 1);
 
+  let baseColor: THREE.Color;
   if (t < 0.2) {
-    return LOWLAND_COLOR.clone().lerp(MIDLAND_COLOR, t / 0.2);
+    baseColor = LOWLAND_COLOR.clone().lerp(MIDLAND_COLOR, t / 0.2);
+  } else if (t < 0.6) {
+    baseColor = MIDLAND_COLOR.clone().lerp(HIGHLAND_COLOR, (t - 0.2) / 0.4);
+  } else {
+    baseColor = HIGHLAND_COLOR.clone().lerp(PEAK_COLOR, (t - 0.6) / 0.4);
   }
-  if (t < 0.6) {
-    return MIDLAND_COLOR.clone().lerp(HIGHLAND_COLOR, (t - 0.2) / 0.4);
+
+  // Blend in woods color for forested areas (moisture-based darkening)
+  if (cell.biome === 'woods') {
+    // Use moisture to determine woods intensity (higher moisture = denser forest)
+    const woodsBlend = 0.3 + cell.moisture * 0.3; // 30-60% woods influence
+    baseColor.lerp(WOODS_BLEND_COLOR, woodsBlend);
   }
-  return HIGHLAND_COLOR.clone().lerp(PEAK_COLOR, (t - 0.6) / 0.4);
+
+  return baseColor;
+}
+
+/**
+ * Get cell color based on texture mode.
+ * For moisture mode, uses normalized moisture range for better visualization.
+ */
+function getCellColor(
+  cell: VoronoiCell,
+  maxElevation: number,
+  textureMode: TextureMode,
+  moistureRange?: { min: number; max: number }
+): THREE.Color {
+  switch (textureMode) {
+    case 'biome': {
+      const biome = cell.biome ?? 'plains';
+      const biomeColor = BIOME_COLORS[biome];
+      if (!biomeColor) {
+        console.warn('[getCellColor] Unknown biome:', biome, 'for cell:', cell.id);
+        return BIOME_COLORS['plains'].clone();
+      }
+      return biomeColor.clone();
+    }
+    case 'moisture': {
+      // Normalize moisture to show relative variation
+      let t = cell.moisture ?? 0;
+      if (moistureRange && moistureRange.max > moistureRange.min) {
+        t = (t - moistureRange.min) / (moistureRange.max - moistureRange.min);
+      }
+      return new THREE.Color().lerpColors(MOISTURE_DRY, MOISTURE_WET, t);
+    }
+    case 'blank':
+      return VORONOI_COLOR.clone();
+    default: // 'normal'
+      return getTerrainColor(cell, maxElevation);
+  }
 }
 
 // Hash vertex coordinates to a string key for consistent lookups
@@ -571,16 +634,27 @@ export function VoronoiTerrainMesh({
   riverMode,
   useHeight,
   textureMode,
+  wireframeMode,
 }: VoronoiTerrainMeshProps) {
   const meshRef = useRef<THREE.Group>(null);
-  const isVoronoiMode = textureMode === 'voronoi';
+  const showWireframe = wireframeMode === 'cells';
   const setHeightData = useTerrainHeightStore((s) => s.setHeightData);
 
-  const { terrainGeometry, riverLineGeometry, debugLineGeometry, crossingLineGeometry } = useMemo(() => {
+  const { terrainGeometry, riverLineGeometry, debugLineGeometry, crossingLineGeometry, wireframeGeometry, centroidGeometry } = useMemo(() => {
     const { cells, bounds } = terrain;
     const maxElevation = Math.max(...cells.map((c: VoronoiCell) => c.elevation), 1);
+
     const elevationScale = useHeight ? ELEVATION_SCALE : 0;
     const flatHeight = FLAT_HEIGHT;
+
+    // Compute moisture range for land cells (for normalized visualization)
+    const landCells = cells.filter(c => c.isLand);
+    let moistureMin = 1, moistureMax = 0;
+    for (const cell of landCells) {
+      if (cell.moisture < moistureMin) moistureMin = cell.moisture;
+      if (cell.moisture > moistureMax) moistureMax = cell.moisture;
+    }
+    const moistureRange = { min: moistureMin, max: moistureMax };
 
     // Pre-compute vertex elevations (no river carving at vertices)
     const vertexElevations = useHeight ? buildVertexElevationMap(cells) : null;
@@ -611,9 +685,10 @@ export function VoronoiTerrainMesh({
       if (cell.vertices.length < 3) continue;
 
       const isRiver = cell.isLand && cell.flowAccumulation >= RIVER_THRESHOLD;
-      // In voronoi mode, use gray; otherwise use terrain colors
-      const terrainColor = isVoronoiMode ? VORONOI_COLOR : getTerrainColor(cell, maxElevation);
-      const riverColor = riverMode === 'full' && !isVoronoiMode ? RIVER_COLOR : terrainColor;
+      // Get cell color based on texture mode (normal, blank, biome, moisture)
+      const terrainColor = getCellColor(cell, maxElevation, textureMode, moistureRange);
+      // Rivers only override color in normal mode
+      const riverColor = riverMode === 'full' && textureMode === 'normal' ? RIVER_COLOR : terrainColor;
 
       if (carveRivers !== 'off' && isRiver) {
         // Use bank-based triangulation for river cells (consistent channel width)
@@ -641,7 +716,7 @@ export function VoronoiTerrainMesh({
         );
       } else {
         // Standard fan triangulation for non-river cells
-        const color = isRiver && riverMode === 'full' && !isVoronoiMode ? RIVER_COLOR : terrainColor;
+        const color = isRiver && riverMode === 'full' && textureMode === 'normal' ? RIVER_COLOR : terrainColor;
         const yCenter = getCellY(cell);
         const cx = cell.centroid.x - bounds.width / 2;
         const cz = cell.centroid.y - bounds.height / 2;
@@ -656,8 +731,9 @@ export function VoronoiTerrainMesh({
           const z1 = v1.y - bounds.height / 2;
 
           // Look up pre-computed vertex elevations
-          const y0 = getVertexY(v0.x, v0.y, cell.elevation);
-          const y1 = getVertexY(v1.x, v1.y, cell.elevation);
+          // For water cells, use water level to avoid being pulled up by adjacent land
+          const y0 = cell.isLand ? getVertexY(v0.x, v0.y, cell.elevation) : yCenter;
+          const y1 = cell.isLand ? getVertexY(v1.x, v1.y, cell.elevation) : yCenter;
 
           // Centroid
           positions.push(cx, yCenter, cz);
@@ -1078,8 +1154,57 @@ export function VoronoiTerrainMesh({
     // Compute line distances for dashed material
     crossingLineGeo.computeBoundingSphere();
 
-    return { terrainGeometry: terrainGeo, riverLineGeometry: riverLineGeo, debugLineGeometry: debugLineGeo, crossingLineGeometry: crossingLineGeo };
-  }, [terrain, carveRivers, riverMode, useHeight, isVoronoiMode]);
+    // Build wireframe geometry for cell edges
+    const wireframePositions: number[] = [];
+    for (const cell of cells) {
+      if (cell.vertices.length < 3) continue;
+
+      for (let i = 0; i < cell.vertices.length; i++) {
+        const v0 = cell.vertices[i];
+        const v1 = cell.vertices[(i + 1) % cell.vertices.length];
+
+        const x0 = v0.x - bounds.width / 2;
+        const z0 = v0.y - bounds.height / 2;
+        const x1 = v1.x - bounds.width / 2;
+        const z1 = v1.y - bounds.height / 2;
+
+        const y0 = vertexElevations
+          ? (vertexElevations.get(vertexKey(v0.x, v0.y)) ?? -5) * ELEVATION_SCALE
+          : flatHeight;
+        const y1 = vertexElevations
+          ? (vertexElevations.get(vertexKey(v1.x, v1.y)) ?? -5) * ELEVATION_SCALE
+          : flatHeight;
+
+        // Edge line (slightly above terrain to prevent z-fighting)
+        wireframePositions.push(x0, y0 + 0.2, z0, x1, y1 + 0.2, z1);
+      }
+    }
+
+    const wireframeGeo = new THREE.BufferGeometry();
+    wireframeGeo.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(wireframePositions, 3)
+    );
+
+    // Build centroid points geometry
+    const centroidPositions: number[] = [];
+    for (const cell of cells) {
+      const cx = cell.centroid.x - bounds.width / 2;
+      const cz = cell.centroid.y - bounds.height / 2;
+      const cy = useHeight
+        ? (cell.isLand ? cell.elevation * ELEVATION_SCALE : OCEAN_DEPTH * ELEVATION_SCALE) + 0.3
+        : flatHeight + 0.3;
+      centroidPositions.push(cx, cy, cz);
+    }
+
+    const centroidGeo = new THREE.BufferGeometry();
+    centroidGeo.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(centroidPositions, 3)
+    );
+
+    return { terrainGeometry: terrainGeo, riverLineGeometry: riverLineGeo, debugLineGeometry: debugLineGeo, crossingLineGeometry: crossingLineGeo, wireframeGeometry: wireframeGeo, centroidGeometry: centroidGeo };
+  }, [terrain, carveRivers, riverMode, useHeight, textureMode, showWireframe]);
 
   // Populate the height store for other components to use
   useEffect(() => {
@@ -1118,6 +1243,18 @@ export function VoronoiTerrainMesh({
         <lineSegments geometry={crossingLineGeometry}>
           <lineDashedMaterial color={0xff00ff} linewidth={2} dashSize={2} gapSize={1} />
         </lineSegments>
+      )}
+
+      {/* Wireframe showing cell boundaries */}
+      {showWireframe && (
+        <>
+          <lineSegments geometry={wireframeGeometry}>
+            <lineBasicMaterial color={0x333333} linewidth={1} />
+          </lineSegments>
+          <points geometry={centroidGeometry}>
+            <pointsMaterial color={0x000000} size={3} sizeAttenuation={false} />
+          </points>
+        </>
       )}
 
       {/* 'full' mode colors river cells blue - part of terrain mesh */}

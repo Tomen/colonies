@@ -24,7 +24,7 @@ export default function App() {
       <CellDebugPanel />
       <div className="canvas-container">
         <Canvas
-          camera={{ position: [1200, 600, 1000], fov: 60, near: 1, far: 5000 }}
+          camera={{ position: [1200, 600, 1000], fov: 60, near: 1, far: 50000 }}
           gl={{ antialias: true }}
         >
           <SkyDome />
@@ -32,7 +32,7 @@ export default function App() {
           <directionalLight position={[100, 200, 100]} intensity={0.8} />
           <TerrainRenderer />
           <WaterPlane />
-          <FlyControls moveSpeed={300} lookSpeed={0.002} />
+          <FlyControls moveSpeed={900} lookSpeed={0.002} />
           {status === 'running' && <Stats />}
         </Canvas>
       </div>

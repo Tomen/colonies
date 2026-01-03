@@ -6,14 +6,19 @@ import type { WorldConfig } from './types.js';
  */
 export const DEFAULT_CONFIG: WorldConfig = {
   seed: 12345,
-  mapSize: 1000,
+  mapSize: 10000, // 10km x 10km, 1 unit = 1 meter
 
   // Voronoi parameters
   voronoiCellCount: 10000,
   voronoiRelaxation: 2,
   landThreshold: -0.1,
-  riverThreshold: 50,
+  riverThreshold: 25,
   moistureDiffusion: 5,
+
+  // Lake/depression parameters (Priority-Flood)
+  fillSpillEnabled: true,
+  minLakeArea: 3,
+  minLakeDepth: 1.0,
 
   // Island shape parameters
   landFraction: 0.55,
@@ -21,9 +26,11 @@ export const DEFAULT_CONFIG: WorldConfig = {
   islandNoiseOctaves: 4,
 
   // Elevation parameters (mapgen4-style hills+mountains dual system)
-  peakElevation: 300,
+  peakElevation: 1500,
   minPeakElevation: 50,
   mountainPeakCount: 5,
+  ridgeEnabled: true,
+  ridgeWidth: 3,
   hilliness: 0.3,
   elevationBlendPower: 2,
   hillNoiseScale: 0.008,

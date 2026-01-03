@@ -53,11 +53,9 @@ pnpm generate config.yaml  # Use custom config file
 
 ```yaml
 seed: 12345
-mapSize: 1000
-ridgeOrientation: 45
-riverDensity: 0.5
-coastalPlainWidth: 0.3
-ridgeHeight: 200
+mapSize: 10000  # 10km x 10km, 1 unit = 1 meter
+voronoiCellCount: 10000
+settlementCount: 3
 ```
 
 ## Guidelines

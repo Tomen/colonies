@@ -17,15 +17,18 @@ export type {
   VoronoiCell,
   VoronoiEdge,
   VoronoiTerrainData,
+  Lake,
   // Terrain type and interface
   TerrainResult,
   ITerrainGenerator,
   // Cadastral types
   LandUse,
+  Biome,
   Parcel,
   Rect,
   // Building & Street types
   BuildingType,
+  BuildingTier,
   RoofType,
   BuildingStyle,
   Building,

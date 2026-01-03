@@ -2,6 +2,7 @@
  * Street generation for settlements.
  *
  * Creates streets along network edges within settlement territory.
+ * Streets have vertices at cell boundaries to avoid rendering artifacts.
  */
 
 import type {
@@ -10,6 +11,7 @@ import type {
   StreetType,
   Settlement,
   VoronoiTerrainData,
+  VoronoiCell,
   NetworkEdge,
   EdgeType,
 } from '@colonies/shared';
@@ -41,6 +43,40 @@ function edgeTypeToStreetType(edgeType: EdgeType): StreetType {
     default:
       return 'lane';
   }
+}
+
+/**
+ * Find the shared edge between two adjacent cells.
+ * Returns the midpoint of the shared edge, or null if cells don't share an edge.
+ */
+function findSharedEdgeMidpoint(cellA: VoronoiCell, cellB: VoronoiCell): Point | null {
+  const verticesA = cellA.vertices;
+  const verticesB = cellB.vertices;
+
+  // Find vertices that are shared (or very close) between the two cells
+  const sharedPoints: Point[] = [];
+  const epsilon = 0.1; // Tolerance for floating point comparison
+
+  for (const va of verticesA) {
+    for (const vb of verticesB) {
+      const dx = va.x - vb.x;
+      const dy = va.y - vb.y;
+      if (dx * dx + dy * dy < epsilon * epsilon) {
+        sharedPoints.push(va);
+        break;
+      }
+    }
+  }
+
+  // If we found at least 2 shared points, compute midpoint
+  if (sharedPoints.length >= 2) {
+    return {
+      x: (sharedPoints[0].x + sharedPoints[1].x) / 2,
+      y: (sharedPoints[0].y + sharedPoints[1].y) / 2,
+    };
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -81,11 +117,18 @@ export function generateStreetsForSettlement(
 
       if (!fromCell || !toCell) continue;
 
-      // Create street path from cell centroids
-      const path: Point[] = [
-        { x: fromCell.centroid.x, y: fromCell.centroid.y },
-        { x: toCell.centroid.x, y: toCell.centroid.y },
-      ];
+      // Create street path with vertex at cell boundary to avoid rendering artifacts
+      const edgeMidpoint = findSharedEdgeMidpoint(fromCell, toCell);
+      const path: Point[] = edgeMidpoint
+        ? [
+            { x: fromCell.centroid.x, y: fromCell.centroid.y },
+            edgeMidpoint,
+            { x: toCell.centroid.x, y: toCell.centroid.y },
+          ]
+        : [
+            { x: fromCell.centroid.x, y: fromCell.centroid.y },
+            { x: toCell.centroid.x, y: toCell.centroid.y },
+          ];
 
       const streetType = edgeTypeToStreetType(edge.type);
 
@@ -162,11 +205,18 @@ export function generateDefaultStreets(
       const neighbor = terrain.cells[neighborId];
       if (!neighbor) continue;
 
-      // Create street path
-      const path: Point[] = [
-        { x: cell.centroid.x, y: cell.centroid.y },
-        { x: neighbor.centroid.x, y: neighbor.centroid.y },
-      ];
+      // Create street path with vertex at cell boundary
+      const edgeMidpoint = findSharedEdgeMidpoint(cell, neighbor);
+      const path: Point[] = edgeMidpoint
+        ? [
+            { x: cell.centroid.x, y: cell.centroid.y },
+            edgeMidpoint,
+            { x: neighbor.centroid.x, y: neighbor.centroid.y },
+          ]
+        : [
+            { x: cell.centroid.x, y: cell.centroid.y },
+            { x: neighbor.centroid.x, y: neighbor.centroid.y },
+          ];
 
       // Default to lane type
       streets.push({

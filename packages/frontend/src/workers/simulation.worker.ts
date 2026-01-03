@@ -22,6 +22,7 @@ import type {
   SerializedNetwork,
   Building,
   Street,
+  Lake,
 } from '@colonies/shared';
 
 // Keep reference to network for pathfinding requests
@@ -34,6 +35,7 @@ export interface SerializedTerrain {
   edges: VoronoiEdge[];
   rivers: VoronoiEdge[];
   bounds: { width: number; height: number };
+  lakes: Lake[];
   parcels: Parcel[];
   settlements: Settlement[];
   harborLocation: Point | null;
@@ -57,6 +59,7 @@ function serializeTerrain(
     edges: terrain.edges,
     rivers: terrain.rivers,
     bounds: terrain.bounds,
+    lakes: terrain.lakes ?? [],
     parcels,
     settlements,
     harborLocation,
@@ -129,6 +132,23 @@ function postProgress(percent: number, stage: string) {
   self.postMessage({ type: 'PROGRESS', percent, stage });
 }
 
+/**
+ * Execute a stage safely, catching and logging any errors.
+ * Returns the result or null if the stage failed.
+ */
+function safeExecute<T>(stageName: string, fn: () => T): T | null {
+  try {
+    return fn();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[Simulation] ${stageName} failed:`, message);
+    if (error instanceof Error && error.stack) {
+      console.error(error.stack);
+    }
+    return null;
+  }
+}
+
 self.onmessage = (e: MessageEvent) => {
   const { type, config, fromCell, toCell } = e.data;
 
@@ -147,54 +167,83 @@ self.onmessage = (e: MessageEvent) => {
   }
 
   if (type === 'GENERATE') {
+    const worldConfig = config as WorldConfig;
+
+    // Stage 1: Create generator (CRITICAL - can't continue without it)
+    postProgress(0, 'Generating terrain...');
+    let generator;
     try {
-      const worldConfig = config as WorldConfig;
+      generator = createWorldGenerator(worldConfig);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[Simulation] Generator creation failed:', message);
+      self.postMessage({ type: 'ERROR', message });
+      return;
+    }
 
-      postProgress(0, 'Generating terrain...');
-      const generator = createWorldGenerator(worldConfig);
+    // Stage 2: Generate terrain (CRITICAL - can't continue without it)
+    postProgress(20, 'Building terrain data...');
+    let terrain: VoronoiTerrainData;
+    try {
+      terrain = generator.generateTerrain();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[Simulation] Terrain generation failed:', message);
+      self.postMessage({ type: 'ERROR', message });
+      return;
+    }
 
-      postProgress(20, 'Building terrain data...');
-      const terrain = generator.generateTerrain();
+    // Stage 3: Transport network (non-critical)
+    postProgress(50, 'Building transport network...');
+    const network = safeExecute('Transport network', () => createTransportNetwork(terrain));
+    currentNetwork = network; // May be null
 
-      postProgress(50, 'Building transport network...');
-      const network = createTransportNetwork(terrain);
-      currentNetwork = network; // Store for pathfinding requests
+    // Stage 4: Harbor location (non-critical)
+    postProgress(60, 'Finding harbor locations...');
+    const harborLocation = safeExecute('Harbor location', () => generator.findBestHarbor(terrain));
 
-      postProgress(60, 'Finding harbor locations...');
-      const harborLocation = generator.findBestHarbor(terrain);
+    // Stage 5: Settlements and buildings (non-critical)
+    postProgress(70, 'Generating settlements and buildings...');
+    let parcels: Parcel[] = [];
+    let settlements: Settlement[] = [];
+    let buildings: Building[] = [];
+    let streets: Street[] = [];
 
-      postProgress(70, 'Generating settlements and buildings...');
-      // Extract edge info for street generation
+    if (network) {
       const networkEdges = network.getAllEdges().map((e) => ({
         fromCell: e.fromCell,
         toCell: e.toCell,
         type: e.type,
       }));
-      const { parcels, settlements, buildings, streets } = generateSettlementsAndParcels(
-        terrain,
-        worldConfig,
-        networkEdges
+      const result = safeExecute('Settlements and buildings', () =>
+        generateSettlementsAndParcels(terrain, worldConfig, networkEdges)
       );
-
-      postProgress(90, 'Serializing data...');
-      const serializedNetwork = network.serialize(settlements);
-      const serialized = serializeTerrain(
-        terrain,
-        parcels,
-        settlements,
-        harborLocation,
-        serializedNetwork,
-        buildings,
-        streets
-      );
-
-      self.postMessage({ type: 'TERRAIN_GENERATED', terrain: serialized });
-    } catch (error) {
-      self.postMessage({
-        type: 'ERROR',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      if (result) {
+        parcels = result.parcels;
+        settlements = result.settlements;
+        buildings = result.buildings;
+        streets = result.streets;
+      }
+    } else {
+      console.warn('[Simulation] Skipping settlements - no network available');
     }
+
+    // Stage 6: Serialize (uses whatever data we have)
+    postProgress(90, 'Serializing data...');
+    const serializedNetwork = network
+      ? safeExecute('Network serialization', () => network.serialize(settlements))
+      : null;
+    const serialized = serializeTerrain(
+      terrain,
+      parcels,
+      settlements,
+      harborLocation,
+      serializedNetwork,
+      buildings,
+      streets
+    );
+
+    self.postMessage({ type: 'TERRAIN_GENERATED', terrain: serialized });
   }
 };
 

@@ -21,7 +21,7 @@ interface VoronoiDebugMeshProps {
 const CELL_EDGE_COLOR = 0x000000; // Black
 const PARCEL_EDGE_COLOR = 0x666666; // Medium gray
 const CENTROID_COLOR = 0x000000; // Black
-const RIVER_THRESHOLD = 50;
+const RIVER_THRESHOLD = 25;
 
 /**
  * VoronoiDebugMesh renders debug overlays on top of the terrain:

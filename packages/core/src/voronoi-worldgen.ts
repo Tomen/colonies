@@ -8,8 +8,11 @@ import type {
   Point,
   ITerrainGenerator,
   TerrainResult,
+  Lake,
 } from '@colonies/shared';
 import { SeededRNG } from './rng.js';
+import { MinHeap } from './priority-queue.js';
+import { UnionFind } from './union-find.js';
 
 type Point2D = [number, number];
 
@@ -64,14 +67,20 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
     // 5. Compute distance-based elevation using BFS from ocean
     this.computeElevation(cells);
 
-    // 6. Compute flow routing and accumulation
-    this.computeFlowRouting(cells);
+    // 6. Priority-Flood depression filling (creates lakes, sets filledElevation)
+    const lakes = this.priorityFloodFill(cells);
 
-    // 7. Build edges and identify rivers
+    // 7. Compute flow routing and accumulation (uses filledElevation, routes lakes through outlets)
+    this.computeFlowRouting(cells, lakes);
+
+    // 8. Build edges and identify rivers
     const { edges, rivers } = this.buildEdges(cells);
 
-    // 8. Compute moisture diffusion from rivers and coast
+    // 9. Compute moisture diffusion from rivers and coast
     this.computeMoisture(cells, rivers);
+
+    // 10. Assign biomes based on terrain properties
+    this.assignBiomes(cells);
 
     return {
       type: 'voronoi',
@@ -79,6 +88,7 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
       edges,
       rivers,
       bounds: { width: mapSize, height: mapSize },
+      lakes,
     };
   }
 
@@ -275,6 +285,7 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
         isCoast: false,
         flowsTo: null,
         flowAccumulation: 1,
+        biome: isLand ? 'plains' : 'sea', // Default, refined in assignBiomes
       });
     }
 
@@ -309,6 +320,8 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
     const blendPower = this.config.elevationBlendPower ?? 2;
     const hillNoiseScale = this.config.hillNoiseScale ?? 0.008;
     const hillNoiseAmp = this.config.hillNoiseAmplitude ?? 0.4;
+    const ridgeEnabled = this.config.ridgeEnabled ?? true;
+    const ridgeWidth = this.config.ridgeWidth ?? 3;
 
     // Step 1: BFS from ocean to compute distance from coast
     const oceanCells = cells.filter((c) => !c.isLand);
@@ -337,19 +350,29 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
       }
     }
 
-    // Step 2: Select mountain peak locations (cells with highest distance from coast)
+    // Step 2: Select mountain peak locations spread across inland areas
     const landCells = cells.filter((c) => c.isLand);
+
+    // Filter to inland cells (top 60% by distance from coast) - these are peak candidates
     const sortedByDist = [...landCells].sort(
       (a, b) => distFromCoast[b.id] - distFromCoast[a.id]
     );
+    const inlandThreshold = Math.floor(landCells.length * 0.6);
+    const inlandCells = sortedByDist.slice(0, inlandThreshold);
 
-    // Pick peaks that are spread apart
+    // Shuffle inland cells using seeded RNG for variety
+    for (let i = inlandCells.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rng.next() * (i + 1));
+      [inlandCells[i], inlandCells[j]] = [inlandCells[j], inlandCells[i]];
+    }
+
+    // Pick peaks that are spread apart using Poisson-like spacing
     const peaks: VoronoiCell[] = [];
     const minPeakSpacing = Math.sqrt(
       (this.config.mapSize * this.config.mapSize) / mountainPeakCount
-    ) * 0.5;
+    ) * 0.7; // Increase spacing factor for better distribution
 
-    for (const candidate of sortedByDist) {
+    for (const candidate of inlandCells) {
       if (peaks.length >= mountainPeakCount) break;
 
       // Check if far enough from existing peaks
@@ -364,13 +387,66 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
       }
     }
 
-    // Step 3: BFS from peaks to compute distance from mountains
+    // Step 2b: Build ridge lines connecting peaks (if enabled)
+    const ridgeCells = new Set<number>();
+    for (const peak of peaks) {
+      ridgeCells.add(peak.id);
+    }
+
+    if (ridgeEnabled && peaks.length >= 2) {
+      // Connect each peak to its nearest neighbor(s) forming a ridge network
+      const maxRidgeConnectionDist = this.config.mapSize * 0.5;
+
+      for (let i = 0; i < peaks.length; i++) {
+        for (let j = i + 1; j < peaks.length; j++) {
+          const peakA = peaks[i];
+          const peakB = peaks[j];
+          const dx = peakB.centroid.x - peakA.centroid.x;
+          const dy = peakB.centroid.y - peakA.centroid.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Only connect peaks within reasonable distance
+          if (dist > maxRidgeConnectionDist) continue;
+
+          // Find cells along the ridge path using greedy walk
+          const ridgePath = this.findRidgePath(cells, peakA.id, peakB.id, distFromCoast);
+          for (const cellId of ridgePath) {
+            ridgeCells.add(cellId);
+          }
+        }
+      }
+
+      // Expand ridges to create wider mountain ranges
+      if (ridgeWidth > 1) {
+        const expandedRidge = new Set(ridgeCells);
+        for (let w = 1; w < ridgeWidth; w++) {
+          const toAdd: number[] = [];
+          for (const cellId of expandedRidge) {
+            const cell = cells[cellId];
+            for (const neighborId of cell.neighbors) {
+              const neighbor = cells[neighborId];
+              if (neighbor && neighbor.isLand && !expandedRidge.has(neighborId)) {
+                toAdd.push(neighborId);
+              }
+            }
+          }
+          for (const id of toAdd) {
+            expandedRidge.add(id);
+          }
+        }
+        for (const id of expandedRidge) {
+          ridgeCells.add(id);
+        }
+      }
+    }
+
+    // Step 3: BFS from ridge cells (or just peaks if ridges disabled) to compute distance
     const distFromPeak = new Float32Array(cells.length).fill(Infinity);
     const peakQueue: number[] = [];
 
-    for (const peak of peaks) {
-      distFromPeak[peak.id] = 0;
-      peakQueue.push(peak.id);
+    for (const cellId of ridgeCells) {
+      distFromPeak[cellId] = 0;
+      peakQueue.push(cellId);
     }
 
     let maxPeakDist = 0;
@@ -396,21 +472,22 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
 
       // Normalize distances
       const coastT = Math.min(distFromCoast[cell.id] / maxCoastDist, 1);
-      const _peakT =
+      // peakT: 1 at peaks/ridges, 0 far from them
+      const peakT =
         maxPeakDist > 0
           ? 1 - Math.min(distFromPeak[cell.id] / maxPeakDist, 1)
           : 0;
-      void _peakT; // Reserved for future use
 
-      // Mountain elevation: combine distance from coast and distance from peaks
-      // Using B/(A+B) formula where A = dist from peak, B = dist from coast
-      const A = distFromPeak[cell.id] + 1; // +1 to avoid division by zero
-      const B = distFromCoast[cell.id] + 1;
-      const mountainBlend = B / (A + B); // Higher near peaks, lower near coast
+      // coastFactor gates ALL elevation - you must be inland to be high
+      // At coast (coastT=0): coastFactor=0, so elevation=0
+      const coastFactor = Math.pow(coastT, blendPower);
 
-      // Apply blend power to create flatter coastal plains
-      const mountainElevation =
-        Math.pow(coastT, blendPower) * mountainBlend * peakElevation;
+      // peakFactor adds bonus for proximity to peaks/ridges
+      const peakFactor = Math.pow(peakT, 1.5);
+
+      // Elevation = coastFactor * (gentle base + peak bonus)
+      // At coast: 0, inland far from peaks: ~30% of max, at peaks: ~90% of max
+      const baseElevation = coastFactor * peakElevation * (0.3 + 0.6 * peakFactor);
 
       // Hill elevation: low-amplitude noise for gentle rolling terrain
       const hillNoise = this.fractalNoise(
@@ -421,42 +498,339 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
       // Map noise from [-1,1] to [0,1] range, then scale
       const hillElevation = ((hillNoise + 1) / 2) * hillNoiseAmp * peakElevation;
 
-      // Blend hills and mountains based on distance from coast
-      // Near coast (low coastT): more hills influence for gentle terrain
-      // Inland (high coastT): more mountain influence
-      const blendWeight = Math.pow(coastT, blendPower);
+      // Combine: base terrain + hills (also gated by coastFactor)
       cell.elevation =
-        hillElevation * hilliness * (1 - blendWeight) +
-        mountainElevation * (1 - hilliness * (1 - blendWeight));
+        baseElevation +
+        hillElevation * hilliness * coastFactor;
 
       // Ensure minimum elevation for land
       cell.elevation = Math.max(cell.elevation, 1);
     }
   }
 
-  private computeFlowRouting(cells: VoronoiCell[]): void {
-    // Each land cell flows to its lowest neighbor
+  /**
+   * Find a path between two cells that stays on high ground (ridge path).
+   * Uses A* with distance-from-coast as heuristic to prefer inland routes.
+   */
+  private findRidgePath(
+    cells: VoronoiCell[],
+    startId: number,
+    endId: number,
+    distFromCoast: Float32Array
+  ): number[] {
+    const endCell = cells[endId];
+    const endX = endCell.centroid.x;
+    const endY = endCell.centroid.y;
+
+    // A* search preferring high-ground paths
+    const openSet = new Map<number, number>(); // cellId -> fScore
+    const cameFrom = new Map<number, number>();
+    const gScore = new Map<number, number>();
+
+    gScore.set(startId, 0);
+    const startDist = this.euclideanDist(cells[startId].centroid, endCell.centroid);
+    openSet.set(startId, startDist);
+
+    while (openSet.size > 0) {
+      // Find cell with lowest fScore
+      let currentId = -1;
+      let lowestF = Infinity;
+      for (const [id, f] of openSet) {
+        if (f < lowestF) {
+          lowestF = f;
+          currentId = id;
+        }
+      }
+
+      if (currentId === endId) {
+        // Reconstruct path
+        const path: number[] = [];
+        let cur = currentId;
+        while (cameFrom.has(cur)) {
+          path.push(cur);
+          cur = cameFrom.get(cur)!;
+        }
+        path.push(startId);
+        return path.reverse();
+      }
+
+      openSet.delete(currentId);
+      const current = cells[currentId];
+      const currentG = gScore.get(currentId) ?? Infinity;
+
+      for (const neighborId of current.neighbors) {
+        const neighbor = cells[neighborId];
+        if (!neighbor || !neighbor.isLand) continue;
+
+        // Cost: prefer cells farther from coast (higher ground)
+        // Lower cost = better, so invert distFromCoast
+        const coastPenalty = 1 / (distFromCoast[neighborId] + 1);
+        const tentativeG = currentG + 1 + coastPenalty * 2;
+
+        if (tentativeG < (gScore.get(neighborId) ?? Infinity)) {
+          cameFrom.set(neighborId, currentId);
+          gScore.set(neighborId, tentativeG);
+          const h = this.euclideanDist(neighbor.centroid, { x: endX, y: endY });
+          openSet.set(neighborId, tentativeG + h * 0.1);
+        }
+      }
+    }
+
+    // No path found, return direct line (shouldn't happen on connected land)
+    return [startId, endId];
+  }
+
+  private euclideanDist(a: { x: number; y: number }, b: { x: number; y: number }): number {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /**
+   * Priority-Flood algorithm for depression filling.
+   * Ensures all land cells can drain to the ocean by filling depressions.
+   * Creates lakes where depressions are filled above minLakeDepth.
+   *
+   * Based on Barnes et al. 2014: "Priority-Flood: An Optimal Depression-Filling
+   * and Watershed-Labeling Algorithm for Digital Elevation Models"
+   */
+  private priorityFloodFill(cells: VoronoiCell[]): Lake[] {
+    const fillSpillEnabled = this.config.fillSpillEnabled ?? true;
+    const minLakeDepth = this.config.minLakeDepth ?? 1.0;
+    const minLakeArea = this.config.minLakeArea ?? 3;
+
+    // Initialize filledElevation to original elevation
+    for (const cell of cells) {
+      cell.filledElevation = cell.elevation;
+      cell.lakeId = null;
+    }
+
+    if (!fillSpillEnabled) {
+      return [];
+    }
+
+    const n = cells.length;
+    const filledElevation = new Float32Array(n);
+    const processed = new Uint8Array(n);
+
+    // Initialize: land cells start at Infinity, ocean cells at their elevation
+    for (let i = 0; i < n; i++) {
+      filledElevation[i] = cells[i].isLand ? Infinity : cells[i].elevation;
+    }
+
+    // Priority queue: [elevation, cellId] - process lowest first
+    const pq = new MinHeap<[number, number]>((a, b) => a[0] - b[0]);
+
+    // Seed queue with ocean-adjacent land cells (the "open drains")
+    for (const cell of cells) {
+      if (!cell.isLand) {
+        processed[cell.id] = 1;
+        // Add land neighbors of ocean cells to queue
+        for (const neighborId of cell.neighbors) {
+          const neighbor = cells[neighborId];
+          if (neighbor && neighbor.isLand && !processed[neighborId]) {
+            filledElevation[neighborId] = neighbor.elevation;
+            pq.push([neighbor.elevation, neighborId]);
+            processed[neighborId] = 1;
+          }
+        }
+      }
+    }
+
+    // Process queue: flood inward from coast
+    while (!pq.isEmpty()) {
+      const [, cellId] = pq.pop()!;
+      const cell = cells[cellId];
+
+      for (const neighborId of cell.neighbors) {
+        const neighbor = cells[neighborId];
+        if (!neighbor || !neighbor.isLand || processed[neighborId]) continue;
+
+        // Key Priority-Flood step: filled = max(own elevation, predecessor's filled)
+        const newFilled = Math.max(
+          neighbor.elevation,
+          filledElevation[cellId]
+        );
+        filledElevation[neighborId] = newFilled;
+        pq.push([newFilled, neighborId]);
+        processed[neighborId] = 1;
+      }
+    }
+
+    // Apply filledElevation to cells
+    for (const cell of cells) {
+      if (cell.isLand) {
+        cell.filledElevation = filledElevation[cell.id];
+      }
+    }
+
+    // Identify lake basins: cells where filledElevation > elevation + minLakeDepth
+    const inLakeBasin = new Uint8Array(n);
+    for (const cell of cells) {
+      if (!cell.isLand) continue;
+      const depthBelowSpill = filledElevation[cell.id] - cell.elevation;
+      if (depthBelowSpill > minLakeDepth) {
+        inLakeBasin[cell.id] = 1;
+      }
+    }
+
+    // Build connected lake components using Union-Find
+    // Cells with same filledElevation that are adjacent form a lake
+    const uf = new UnionFind(n);
+
+    for (const cell of cells) {
+      if (!inLakeBasin[cell.id]) continue;
+
+      for (const neighborId of cell.neighbors) {
+        if (!inLakeBasin[neighborId]) continue;
+
+        // Same spill level = same lake (within epsilon)
+        if (
+          Math.abs(filledElevation[cell.id] - filledElevation[neighborId]) <
+          0.01
+        ) {
+          uf.union(cell.id, neighborId);
+        }
+      }
+    }
+
+    // Group cells by their lake root
+    const componentCells = new Map<number, number[]>();
+    for (const cell of cells) {
+      if (!inLakeBasin[cell.id]) continue;
+      const root = uf.find(cell.id);
+      if (!componentCells.has(root)) {
+        componentCells.set(root, []);
+      }
+      componentCells.get(root)!.push(cell.id);
+    }
+
+    // Build Lake objects from components
+    const lakes: Lake[] = [];
+
+    for (const [root, cellIds] of componentCells) {
+      // Skip lakes that are too small
+      if (cellIds.length < minLakeArea) {
+        // Clear lake markers for small depressions
+        for (const id of cellIds) {
+          cells[id].lakeId = null;
+        }
+        continue;
+      }
+
+      const waterLevel = filledElevation[root];
+      let outletCell = -1;
+      let outletTarget = -1;
+      let maxDepth = 0;
+
+      // Find outlet: cell at or near spill level with a lower neighbor outside the lake
+      for (const id of cellIds) {
+        const cell = cells[id];
+        const depth = waterLevel - cell.elevation;
+        maxDepth = Math.max(maxDepth, depth);
+
+        // Check for outlet: cell with neighbor outside lake at lower elevation
+        for (const neighborId of cell.neighbors) {
+          const neighbor = cells[neighborId];
+          if (!neighbor) continue;
+
+          // Neighbor is outside this lake component
+          const neighborRoot = inLakeBasin[neighborId]
+            ? uf.find(neighborId)
+            : -1;
+          if (neighborRoot !== root) {
+            // Check if this is a valid outlet (neighbor is lower or equal)
+            if (filledElevation[neighborId] <= waterLevel) {
+              // Prefer the cell closest to spill elevation
+              if (
+                outletCell === -1 ||
+                Math.abs(cell.elevation - waterLevel) <
+                  Math.abs(cells[outletCell].elevation - waterLevel)
+              ) {
+                outletCell = id;
+                outletTarget = neighborId;
+              }
+            }
+          }
+        }
+      }
+
+      // Assign final lake ID
+      const lakeId = lakes.length;
+      for (const id of cellIds) {
+        cells[id].lakeId = lakeId;
+      }
+
+      lakes.push({
+        id: lakeId,
+        cellIds,
+        waterLevel,
+        outletCell,
+        outletTarget,
+        area: cellIds.length,
+        maxDepth,
+      });
+    }
+
+    return lakes;
+  }
+
+  private computeFlowRouting(cells: VoronoiCell[], lakes: Lake[]): void {
+    // Build cell-to-lake lookup for efficient routing
+    const cellToLake = new Map<number, Lake>();
+    for (const lake of lakes) {
+      for (const cellId of lake.cellIds) {
+        cellToLake.set(cellId, lake);
+      }
+    }
+
+    // Each land cell flows to its lowest neighbor (using filledElevation)
+    // Lake cells route through their outlet for proper flow accumulation
     for (const cell of cells) {
       if (!cell.isLand) continue;
 
+      // Lake cells route to their outlet (spill routing)
+      const lake = cellToLake.get(cell.id);
+      if (lake) {
+        if (lake.outletCell === -1) {
+          // Endorheic lake - no outlet (sink)
+          cell.flowsTo = null;
+        } else if (cell.id === lake.outletCell) {
+          // Outlet cell flows to downstream target
+          cell.flowsTo = lake.outletTarget >= 0 ? lake.outletTarget : null;
+        } else {
+          // Interior lake cell flows to outlet
+          cell.flowsTo = lake.outletCell;
+        }
+        continue;
+      }
+
+      // Non-lake land cell: standard lowest-neighbor routing
+      const myElevation = cell.filledElevation ?? cell.elevation;
       let lowestNeighbor: number | null = null;
-      let lowestElevation = cell.elevation;
+      let lowestElevation = myElevation;
 
       for (const neighborId of cell.neighbors) {
         const neighbor = cells[neighborId];
         if (!neighbor) continue;
-        if (neighbor.elevation < lowestElevation) {
-          lowestElevation = neighbor.elevation;
+
+        const neighborElev = neighbor.filledElevation ?? neighbor.elevation;
+        if (neighborElev < lowestElevation) {
+          lowestElevation = neighborElev;
           lowestNeighbor = neighborId;
         }
       }
       cell.flowsTo = lowestNeighbor;
     }
 
-    // Accumulate flow (sort by elevation, high to low)
+    // Accumulate flow (sort by filledElevation, high to low)
     const sorted = cells
       .filter((c) => c.isLand)
-      .sort((a, b) => b.elevation - a.elevation);
+      .sort((a, b) => {
+        const elevA = a.filledElevation ?? a.elevation;
+        const elevB = b.filledElevation ?? b.elevation;
+        return elevB - elevA;
+      });
 
     for (const cell of sorted) {
       const flowsTo = cell.flowsTo;
@@ -578,6 +952,33 @@ export class VoronoiWorldGenerator implements ITerrainGenerator {
       }
       for (const cell of cells) {
         cell.moisture = newMoisture[cell.id];
+      }
+    }
+  }
+
+  /**
+   * Assign biomes to cells based on terrain properties.
+   * Order matters: sea → lake → river → mountains → woods → plains
+   */
+  private assignBiomes(cells: VoronoiCell[]): void {
+    const peakElev = this.config.peakElevation ?? 1500;
+    const mountainThreshold = peakElev * 0.6; // Top 40% = mountains
+    const woodsMoistureThreshold = 0.5;
+    const riverThreshold = this.config.riverThreshold ?? 50;
+
+    for (const cell of cells) {
+      if (!cell.isLand) {
+        cell.biome = 'sea';
+      } else if (cell.lakeId != null) {
+        cell.biome = 'lake';
+      } else if (cell.flowAccumulation >= riverThreshold) {
+        cell.biome = 'river';
+      } else if (cell.elevation > mountainThreshold) {
+        cell.biome = 'mountains';
+      } else if (cell.moisture > woodsMoistureThreshold) {
+        cell.biome = 'woods';
+      } else {
+        cell.biome = 'plains';
       }
     }
   }

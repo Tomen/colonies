@@ -9,8 +9,22 @@ import type {
   Settlement,
   SettlementPath,
   SerializedNetwork,
+  Biome,
 } from '@colonies/shared';
-import { PriorityQueue } from './priority-queue';
+import { PriorityQueue } from './priority-queue.js';
+
+/**
+ * Biome-based terrain cost multipliers.
+ * Affects pathfinding difficulty by terrain type.
+ */
+const BIOME_COST_MULTIPLIER: Record<Biome, number> = {
+  sea: Infinity,      // Impassable by land
+  lake: Infinity,     // Impassable by land
+  river: 1.0,         // Traversable, crossings have separate penalty
+  plains: 1.0,        // Base cost (easy travel)
+  woods: 1.5,         // 50% slower through forest
+  mountains: 3.0,     // Very slow in mountains
+};
 
 /**
  * Default network configuration values.
@@ -152,7 +166,12 @@ export class TransportNetwork {
     const avgElevation = (fromCell.elevation + toCell.elevation) / 2;
     const altitudeFactor = 1 + avgElevation * this.config.altitudeCost;
 
-    return distance * slopeFactor * altitudeFactor;
+    // Biome cost (use harder terrain of the two cells)
+    const fromBiomeCost = BIOME_COST_MULTIPLIER[fromCell.biome ?? 'plains'];
+    const toBiomeCost = BIOME_COST_MULTIPLIER[toCell.biome ?? 'plains'];
+    const biomeFactor = Math.max(fromBiomeCost, toBiomeCost);
+
+    return distance * slopeFactor * altitudeFactor * biomeFactor;
   }
 
   /**

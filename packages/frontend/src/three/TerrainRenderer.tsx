@@ -1,17 +1,18 @@
 import { useSimulationStore } from '../store/simulation';
 import { VoronoiTerrainMesh } from './VoronoiTerrainMesh';
-import { VoronoiDebugMesh } from './VoronoiDebugMesh';
 import { ParcelMesh } from './ParcelMesh';
 import { SettlementMarkers } from './SettlementMarkers';
 import { NetworkMesh } from './NetworkMesh';
 import { CellClickHandler } from './CellClickHandler';
 import { BuildingsMesh } from './BuildingsMesh';
 import { StreetsMesh } from './StreetsMesh';
+import { LakeMesh } from './LakeMesh';
 
 export function TerrainRenderer() {
   const terrain = useSimulationStore((s) => s.terrain);
   const heightMode = useSimulationStore((s) => s.visibleLayers.heightMode);
   const textureMode = useSimulationStore((s) => s.visibleLayers.textureMode);
+  const wireframeMode = useSimulationStore((s) => s.visibleLayers.wireframeMode);
   const carveRivers = useSimulationStore((s) => s.visibleLayers.carveRivers);
   const riverMode = useSimulationStore((s) => s.visibleLayers.riverMode);
   const showParcels = useSimulationStore((s) => s.visibleLayers.parcels);
@@ -38,9 +39,10 @@ export function TerrainRenderer() {
         riverMode={riverMode}
         useHeight={useHeight}
         textureMode={textureMode}
+        wireframeMode={wireframeMode}
       />
-      {textureMode === 'voronoi' && (
-        <VoronoiDebugMesh terrain={terrain} parcels={parcels} useHeight={useHeight} carveRivers={carveRivers} />
+      {terrain.lakes && terrain.lakes.length > 0 && (
+        <LakeMesh terrain={terrain} useHeight={useHeight} />
       )}
       {showParcels && parcels.length > 0 && (
         <ParcelMesh

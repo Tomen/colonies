@@ -49,6 +49,18 @@ Physical → Cadastral → Network → Settlements → Economy → Agents
     └─ Terrain constraints, resources
 ```
 
+### Scale & Units
+
+| Component | Size | Notes |
+|-----------|------|-------|
+| **Map** | 10km × 10km | Default `mapSize=10000`, 1 unit = 1 meter |
+| **Voronoi cell** | ~80-100m across | ~10,000 cells covering the map |
+| **Parcel** | ~45m × 45m | 2000 m² target, 3-5 parcels per cell |
+| **Parcel gap** | ~3m | Margin between parcels for streets/paths |
+| **Building (initial)** | 3-6m wide | Cottage scale for new villages |
+| **Building (mature)** | 6-12m wide | Full-size for established towns |
+| **Elevation** | 0-1500m | Peak elevation in meters |
+
 ## Vision
 
 - Generate an American East-Coast-like map with coastline, rivers and ridges.
@@ -91,6 +103,29 @@ See [voronoi-generation.md](01_physical_layer/voronoi-generation.md) for full de
 - Delaunay dual graph for flow routing
 - Mapgen4-style dual elevation (hills + mountains)
 
+### Biomes
+
+Each cell is assigned a biome based on terrain properties. Biomes influence pathfinding costs, buildable structures, and terrain visualization.
+
+| Biome | Condition | Path Cost | Allowed Buildings |
+|-------|-----------|-----------|-------------------|
+| `sea` | Not land | Impassable | None |
+| `lake` | In lake basin | Impassable | None |
+| `river` | High flow accumulation | 1.0x | Residential |
+| `mountains` | Elevation > 60% of peak | 3.0x | Pasture only |
+| `woods` | Moisture > 0.5 | 1.5x | Forest (lumberjack) |
+| `plains` | Default land | 1.0x | Field, pasture, all |
+
+**Implementation:**
+- Biomes assigned in `voronoi-worldgen.ts:assignBiomes()` after moisture diffusion
+- Pathfinding costs in `transport.ts:BIOME_COST_MULTIPLIER`
+- Land use assignment in `settlements.ts` uses biome to determine parcel types
+
+**Visualization Modes:**
+- **Normal**: Elevation-based colors with woods influence (dark green blend for forested areas)
+- **Biome**: Direct biome coloring (tan plains, green woods, gray mountains, blue water)
+- **Moisture**: Normalized moisture gradient (tan dry → green wet)
+
 ---
 
 ## Cadastral Layer (Parcels & Ownership)
@@ -107,7 +142,7 @@ The cadastral layer provides human-scale parcels for building placement, sitting
 |----------|--------|-----------|
 | Representation | Simple polygons | Defer DCEL complexity for MVP |
 | Generation | On-demand | Create parcels when settlements claim cells |
-| Subdivision | Organic (recursive Voronoi) | Natural-looking lots within cells |
+| Subdivision | Random square placement | Clean rectangles with natural gaps |
 | Visualization | Wireframe + colored by use | Debug visibility and land use display |
 
 ### Parcel Structure
@@ -115,9 +150,10 @@ The cadastral layer provides human-scale parcels for building placement, sitting
 ```typescript
 interface Parcel {
   id: string;
-  vertices: Point[];        // Simple closed polygon
+  vertices: Point[];        // Simple closed polygon (rotated rectangle)
   centroid: Point;
   area: number;
+  rotation: number;         // Rotation in radians (building aligns to this)
   terrainCellId: number;    // Parent terrain cell
   owner: string | null;
   landUse: LandUse;
@@ -131,9 +167,9 @@ type LandUse = 'wilderness' | 'forest' | 'field' | 'pasture'
 
 | Cell Size | Parcels per Cell | Strategy |
 |-----------|------------------|----------|
-| ~100m (Voronoi) | 10-50 | Recursive Voronoi subdivision |
+| ~100m (Voronoi) | 3-5 | Random rotated square placement |
 
-For Voronoi cells, parcels are created by generating random points inside the cell and computing a sub-Voronoi diagram, clipped to the parent cell boundary. This produces organic, irregular lots.
+Parcels are created by randomly placing rotated squares (~45m × 45m) inside each cell with ~3m gaps between them. Each parcel has a rotation that buildings inherit, ensuring houses align with their lot boundaries. This produces clean rectangular lots with organic spacing.
 
 ---
 

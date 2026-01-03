@@ -1,4 +1,89 @@
 /**
+ * A generic min-heap priority queue with custom comparison.
+ * Used by Priority-Flood algorithm for efficient depression filling.
+ */
+export class MinHeap<T> {
+  private heap: T[] = [];
+
+  /**
+   * @param compare Comparison function: returns negative if a < b, positive if a > b, zero if equal
+   */
+  constructor(private compare: (a: T, b: T) => number) {}
+
+  /** Add an item to the heap */
+  push(item: T): void {
+    this.heap.push(item);
+    this.bubbleUp(this.heap.length - 1);
+  }
+
+  /** Remove and return the minimum item */
+  pop(): T | undefined {
+    if (this.heap.length === 0) return undefined;
+
+    const top = this.heap[0];
+    const last = this.heap.pop()!;
+
+    if (this.heap.length > 0) {
+      this.heap[0] = last;
+      this.bubbleDown(0);
+    }
+
+    return top;
+  }
+
+  /** Check if the heap is empty */
+  isEmpty(): boolean {
+    return this.heap.length === 0;
+  }
+
+  /** Get the number of items in the heap */
+  size(): number {
+    return this.heap.length;
+  }
+
+  /** Peek at the minimum item without removing it */
+  peek(): T | undefined {
+    return this.heap[0];
+  }
+
+  private bubbleUp(i: number): void {
+    while (i > 0) {
+      const parent = Math.floor((i - 1) / 2);
+      if (this.compare(this.heap[i], this.heap[parent]) >= 0) break;
+      [this.heap[i], this.heap[parent]] = [this.heap[parent], this.heap[i]];
+      i = parent;
+    }
+  }
+
+  private bubbleDown(i: number): void {
+    while (true) {
+      const left = 2 * i + 1;
+      const right = 2 * i + 2;
+      let smallest = i;
+
+      if (
+        left < this.heap.length &&
+        this.compare(this.heap[left], this.heap[smallest]) < 0
+      ) {
+        smallest = left;
+      }
+
+      if (
+        right < this.heap.length &&
+        this.compare(this.heap[right], this.heap[smallest]) < 0
+      ) {
+        smallest = right;
+      }
+
+      if (smallest === i) break;
+
+      [this.heap[i], this.heap[smallest]] = [this.heap[smallest], this.heap[i]];
+      i = smallest;
+    }
+  }
+}
+
+/**
  * A min-heap priority queue for A* pathfinding.
  * Elements are ordered by priority (lowest first).
  */

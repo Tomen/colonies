@@ -5,10 +5,8 @@ import { ConfigLoader } from './config.js';
 
 export function generateWorld(): void {
   // Load configuration
+  // Default: 10km x 10km map (mapSize=10000), 1 unit = 1 meter
   const config = ConfigLoader.getDefaultConfig();
-
-  // Full size as intended in design spec
-  config.mapSize = 1000; // 10km x 10km at 10m resolution
 
   console.log('Generating world with config:', config);
 

@@ -1,7 +1,7 @@
 import { useSimulationStore } from '../store/simulation';
 
 export function StatusBar() {
-  const { status, progress, progressStage, terrain, config, pathfindingEnabled, pathfindingStart, currentPath } = useSimulationStore();
+  const { status, progress, progressStage, terrain, config, pathfindingEnabled, pathfindingStart, currentPath, camera } = useSimulationStore();
 
   const statusText = {
     idle: 'Ready',
@@ -37,6 +37,11 @@ export function StatusBar() {
           </div>
           <div className="status-item">
             <span>Seed: {config.seed}</span>
+          </div>
+          <div className="status-item">
+            <span>
+              Cam: ({camera.position[0].toFixed(0)}, {camera.position[1].toFixed(0)}, {camera.position[2].toFixed(0)})
+            </span>
           </div>
         </>
       )}

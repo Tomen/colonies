@@ -9,6 +9,7 @@ import type {
   Parcel,
   Building,
   BuildingType,
+  BuildingTier,
   BuildingStyle,
   RoofType,
   LandUse,
@@ -111,6 +112,46 @@ const STORIES: Record<BuildingType, { min: number; max: number }> = {
 };
 
 /**
+ * Building tier scaling factors.
+ * - initial: Small cottages for new villages (0.5x scale)
+ * - growing: Medium buildings for developing settlements (0.75x scale)
+ * - mature: Full-size buildings for established towns (1.0x scale)
+ */
+const BUILDING_TIERS: Record<BuildingTier, { scale: number; maxStories: number }> = {
+  initial: { scale: 0.5, maxStories: 1 },
+  growing: { scale: 0.75, maxStories: 2 },
+  mature: { scale: 1.0, maxStories: 3 },
+};
+
+/**
+ * Get scaled building dimensions based on tier.
+ */
+function getScaledDimensions(
+  buildingType: BuildingType,
+  tier: BuildingTier
+): { minWidth: number; maxWidth: number; minDepth: number; maxDepth: number; minHeight: number; maxHeight: number } {
+  const base = BUILDING_DIMENSIONS[buildingType];
+  const { scale } = BUILDING_TIERS[tier];
+  return {
+    minWidth: base.minWidth * scale,
+    maxWidth: base.maxWidth * scale,
+    minDepth: base.minDepth * scale,
+    maxDepth: base.maxDepth * scale,
+    minHeight: base.minHeight * scale,
+    maxHeight: base.maxHeight * scale,
+  };
+}
+
+/**
+ * Get max stories for a tier (clamped by building type max).
+ */
+function getMaxStories(buildingType: BuildingType, tier: BuildingTier): number {
+  const typeMax = STORIES[buildingType].max;
+  const tierMax = BUILDING_TIERS[tier].maxStories;
+  return Math.min(typeMax, tierMax);
+}
+
+/**
  * Minimum parcel area to place a building.
  */
 const MIN_PARCEL_AREA = 100; // m²
@@ -188,12 +229,17 @@ function randomInRange(min: number, max: number, rng: SeededRNG): number {
 /**
  * Generate a building style for a building type.
  */
-function generateBuildingStyle(buildingType: BuildingType, rng: SeededRNG): BuildingStyle {
+function generateBuildingStyle(
+  buildingType: BuildingType,
+  tier: BuildingTier,
+  rng: SeededRNG
+): BuildingStyle {
   const wallColor = pickRandom(WALL_COLORS[buildingType], rng);
   const roofColor = pickRandom(ROOF_COLORS[buildingType], rng);
   const roofType = pickRoofType(ROOF_TYPES[buildingType], rng);
   const storiesRange = STORIES[buildingType];
-  const stories = Math.floor(randomInRange(storiesRange.min, storiesRange.max + 1, rng));
+  const maxStories = getMaxStories(buildingType, tier);
+  const stories = Math.floor(randomInRange(storiesRange.min, Math.min(storiesRange.max, maxStories) + 1, rng));
 
   return {
     roofType,
@@ -239,12 +285,14 @@ function createFootprint(
  * @param parcel - The parcel to build on
  * @param rng - Seeded RNG for determinism
  * @param nextId - Function to get next building ID
+ * @param tier - Building size tier (default: 'initial' for small cottages)
  * @returns A Building or null if parcel is unsuitable
  */
 export function generateBuildingForParcel(
   parcel: Parcel,
   rng: SeededRNG,
-  nextId: () => string
+  nextId: () => string,
+  tier: BuildingTier = 'initial'
 ): Building | null {
   // Check if parcel has a buildable land use
   const buildingTypes = getBuildingTypesForLandUse(parcel.landUse);
@@ -252,20 +300,23 @@ export function generateBuildingForParcel(
     return null;
   }
 
-  // Check minimum parcel size
-  if (parcel.area < MIN_PARCEL_AREA) {
+  // Check minimum parcel size (scaled by tier)
+  const tierScale = BUILDING_TIERS[tier].scale;
+  const minArea = MIN_PARCEL_AREA * tierScale * tierScale;
+  if (parcel.area < minArea) {
     return null;
   }
 
   // Calculate buildable area
   const buildableArea = calculateBuildableArea(parcel);
-  if (buildableArea.width < 5 || buildableArea.height < 5) {
+  const minBuildableSize = 3 * tierScale; // Smaller buildings need less space
+  if (buildableArea.width < minBuildableSize || buildableArea.height < minBuildableSize) {
     return null;
   }
 
   // Pick building type
   const buildingType = pickRandom(buildingTypes, rng);
-  const dims = BUILDING_DIMENSIONS[buildingType];
+  const dims = getScaledDimensions(buildingType, tier);
 
   // Calculate building size that fits in parcel
   const maxWidth = Math.min(buildableArea.width, dims.maxWidth);
@@ -279,13 +330,11 @@ export function generateBuildingForParcel(
   const depth = randomInRange(dims.minDepth, maxDepth, rng);
   const height = randomInRange(dims.minHeight, dims.maxHeight, rng);
 
-  // Random rotation (aligned to cardinal directions with slight variation)
-  const baseRotation = Math.floor(rng.next() * 4) * (Math.PI / 2);
-  const rotationVariation = (rng.next() - 0.5) * 0.1; // +/- 0.05 radians
-  const rotation = baseRotation + rotationVariation;
+  // Use parcel's rotation so building aligns with parcel
+  const rotation = parcel.rotation;
 
-  // Generate style
-  const style = generateBuildingStyle(buildingType, rng);
+  // Generate style (tier affects max stories)
+  const style = generateBuildingStyle(buildingType, tier, rng);
 
   // Create footprint
   const footprint = createFootprint(buildableArea.center, width, depth, rotation);
@@ -309,16 +358,21 @@ export function generateBuildingForParcel(
  *
  * @param parcels - All parcels to consider
  * @param rng - Seeded RNG for determinism
+ * @param tier - Building size tier (default: 'initial' for small cottages)
  * @returns Array of generated buildings
  */
-export function generateBuildings(parcels: Parcel[], rng: SeededRNG): Building[] {
+export function generateBuildings(
+  parcels: Parcel[],
+  rng: SeededRNG,
+  tier: BuildingTier = 'initial'
+): Building[] {
   const buildings: Building[] = [];
   let nextBuildingId = 1;
 
   const getNextId = (): string => `b${nextBuildingId++}`;
 
   for (const parcel of parcels) {
-    const building = generateBuildingForParcel(parcel, rng, getNextId);
+    const building = generateBuildingForParcel(parcel, rng, getNextId, tier);
     if (building) {
       buildings.push(building);
     }

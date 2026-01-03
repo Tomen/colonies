@@ -4,6 +4,12 @@ export interface Point {
 }
 
 /**
+ * Biome types for terrain classification.
+ * Each Voronoi cell belongs to exactly one biome.
+ */
+export type Biome = 'sea' | 'river' | 'lake' | 'plains' | 'woods' | 'mountains';
+
+/**
  * River representation as explicit polylines with stream order.
  */
 export interface River {
@@ -31,6 +37,26 @@ export interface VoronoiCell {
   isCoast: boolean;
   flowsTo: number | null; // ID of downstream cell
   flowAccumulation: number; // Upstream cell count
+
+  // Priority-Flood lake fields (optional for backward compatibility)
+  filledElevation?: number; // Elevation after depression filling (>= elevation)
+  lakeId?: number | null; // Lake membership (null = not in lake)
+
+  // Biome classification (derived from terrain properties)
+  biome: Biome;
+}
+
+/**
+ * A lake basin formed by filling a depression with Priority-Flood.
+ */
+export interface Lake {
+  id: number;
+  cellIds: number[]; // Cells forming the lake basin
+  waterLevel: number; // Spill elevation (water surface level)
+  outletCell: number; // Cell where overflow exits the lake
+  outletTarget: number; // Downstream cell from outlet
+  area: number; // Total area in cell count
+  maxDepth: number; // Deepest point below waterLevel
 }
 
 /**
@@ -53,6 +79,7 @@ export interface VoronoiTerrainData {
   edges: VoronoiEdge[];
   rivers: VoronoiEdge[]; // High-flow edges marked as rivers
   bounds: { width: number; height: number };
+  lakes?: Lake[]; // Lake basins from Priority-Flood depression filling
 }
 
 export interface WorldConfig {
@@ -66,6 +93,11 @@ export interface WorldConfig {
   riverThreshold?: number; // Min flow accumulation for rivers (default: 50)
   moistureDiffusion?: number; // Moisture diffusion iterations (default: 5)
 
+  // Lake/depression parameters (Priority-Flood)
+  fillSpillEnabled?: boolean; // Enable Priority-Flood depression filling (default: true)
+  minLakeArea?: number; // Min cells to render as lake (default: 3)
+  minLakeDepth?: number; // Fill shallower depressions silently (default: 1.0 meters)
+
   // Island shape parameters
   landFraction?: number; // Fraction of map that is land (default: 0.45)
   islandNoiseScale?: number; // Noise frequency for coastline shape (default: 0.006)
@@ -75,6 +107,8 @@ export interface WorldConfig {
   peakElevation?: number; // Maximum elevation at mountain peaks in meters (default: 300)
   minPeakElevation?: number; // Minimum elevation to be a river source (default: 50)
   mountainPeakCount?: number; // Number of mountain peak points (default: 5)
+  ridgeEnabled?: boolean; // Connect peaks with ridges for longer rivers (default: true)
+  ridgeWidth?: number; // Width of ridges in cells (default: 3)
   hilliness?: number; // Blend between flat (0) and hilly (1) terrain (default: 0.3)
   elevationBlendPower?: number; // Exponent for coast-to-mountain blend, higher = flatter coasts (default: 2)
   hillNoiseScale?: number; // Frequency for hill noise (default: 0.008)
@@ -296,6 +330,7 @@ export interface Parcel {
   vertices: Point[]; // Closed polygon (first != last, implied closure)
   centroid: Point; // Center point for quick spatial queries
   area: number; // Cached area in square meters
+  rotation: number; // Rotation in radians (0 = north-aligned)
 
   // Terrain reference
   terrainCellId: number; // Parent terrain cell ID
@@ -333,6 +368,14 @@ export type BuildingType =
   | 'warehouse'
   | 'church'
   | 'townhall';
+
+/**
+ * Building size tier based on settlement maturity.
+ * - initial: Small cottages for new villages (0.5x scale)
+ * - growing: Medium buildings for developing settlements (0.75x scale)
+ * - mature: Full-size buildings for established towns (1.0x scale)
+ */
+export type BuildingTier = 'initial' | 'growing' | 'mature';
 
 /**
  * Roof styles for procedural buildings.

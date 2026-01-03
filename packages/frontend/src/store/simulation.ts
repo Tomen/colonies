@@ -10,7 +10,8 @@ export type { SerializedTerrain };
 export type SimulationStatus = 'idle' | 'generating' | 'ready' | 'running' | 'paused' | 'error';
 export type RiverMode = 'off' | 'line' | 'full';
 export type HeightMode = 'flat' | '3d';
-export type TextureMode = 'normal' | 'voronoi';
+export type TextureMode = 'normal' | 'blank' | 'biome' | 'moisture';
+export type WireframeMode = 'off' | 'cells';
 export type RiverCarvingMode = 'off' | 'on' | 'debug';
 export type NetworkMode = 'off' | 'cost' | 'paths';
 
@@ -18,6 +19,7 @@ interface VisibleLayers {
   terrain: boolean;
   heightMode: HeightMode;
   textureMode: TextureMode;
+  wireframeMode: WireframeMode;
   carveRivers: RiverCarvingMode;
   riverMode: RiverMode;
   roads: boolean;
@@ -34,7 +36,8 @@ export interface CameraState {
 
 export const DEFAULT_CAMERA: CameraState = {
   position: [1200, 600, 1000],
-  rotation: [0, 0, 0],
+  // Look towards map center (0, 0, 0): pitch down, yaw towards origin
+  rotation: [-0.37, -2.27, 0],
 };
 
 interface SimulationState {
@@ -87,6 +90,7 @@ const DEFAULT_VISIBLE_LAYERS: VisibleLayers = {
   terrain: true,
   heightMode: '3d',
   textureMode: 'normal',
+  wireframeMode: 'off',
   carveRivers: 'on',
   riverMode: 'full',
   roads: true,
@@ -153,14 +157,20 @@ export const useSimulationStore = create<SimulationState>()(
               set({ progress: event.percent, progressStage: event.stage });
               break;
 
-            case 'TERRAIN_GENERATED':
+            case 'TERRAIN_GENERATED': {
+              const t = event.terrain;
+              // Log warnings for missing optional data
+              if (!t.network) console.warn('[Simulation] No transport network generated');
+              if (!t.settlements?.length) console.warn('[Simulation] No settlements generated');
+              if (!t.buildings?.length) console.warn('[Simulation] No buildings generated');
               set({
-                terrain: event.terrain,
+                terrain: t,
                 status: 'ready',
                 progress: 100,
                 progressStage: 'Complete',
               });
               break;
+            }
 
             case 'PATH_RESULT':
               set({ currentPath: event.path });
@@ -246,13 +256,58 @@ export const useSimulationStore = create<SimulationState>()(
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<SimulationState>;
+        // Cast to Record to handle old persisted values that may not match current types
+        const persistedLayers = (persisted.visibleLayers || {}) as Record<string, unknown>;
+
+        // Validate and migrate persisted values
+        const validTextureMode = ['normal', 'blank', 'biome', 'moisture'];
+        const validWireframeMode = ['off', 'cells'];
+        const validRiverMode = ['off', 'line', 'full'];
+        const validCarveRivers = ['off', 'on', 'debug'];
+        const validNetworkMode = ['off', 'cost', 'paths'];
+        const validHeightMode = ['flat', '3d'];
+
+        // Migrate old 'voronoi' textureMode to new values
+        let textureMode: TextureMode = DEFAULT_VISIBLE_LAYERS.textureMode;
+        let wireframeMode: WireframeMode = DEFAULT_VISIBLE_LAYERS.wireframeMode;
+        if (persistedLayers.textureMode === 'voronoi') {
+          textureMode = 'blank';
+          wireframeMode = 'cells';
+        } else if (validTextureMode.includes(persistedLayers.textureMode as string)) {
+          textureMode = persistedLayers.textureMode as TextureMode;
+        }
+        if (validWireframeMode.includes(persistedLayers.wireframeMode as string)) {
+          wireframeMode = persistedLayers.wireframeMode as WireframeMode;
+        }
+
+        // Validate other modes, using defaults for invalid values
+        const riverMode: RiverMode = validRiverMode.includes(persistedLayers.riverMode as string)
+          ? (persistedLayers.riverMode as RiverMode)
+          : DEFAULT_VISIBLE_LAYERS.riverMode;
+        const carveRivers: RiverCarvingMode = validCarveRivers.includes(persistedLayers.carveRivers as string)
+          ? (persistedLayers.carveRivers as RiverCarvingMode)
+          : DEFAULT_VISIBLE_LAYERS.carveRivers;
+        const networkMode: NetworkMode = validNetworkMode.includes(persistedLayers.networkMode as string)
+          ? (persistedLayers.networkMode as NetworkMode)
+          : DEFAULT_VISIBLE_LAYERS.networkMode;
+        const heightMode: HeightMode = validHeightMode.includes(persistedLayers.heightMode as string)
+          ? (persistedLayers.heightMode as HeightMode)
+          : DEFAULT_VISIBLE_LAYERS.heightMode;
+
         return {
           ...currentState,
           ...persisted,
-          // Merge visibleLayers with defaults to ensure new properties have default values
+          // Merge visibleLayers with validated values
           visibleLayers: {
             ...DEFAULT_VISIBLE_LAYERS,
             ...(persisted.visibleLayers || {}),
+            // Override with validated values
+            textureMode,
+            wireframeMode,
+            riverMode,
+            carveRivers,
+            networkMode,
+            heightMode,
           },
           // Merge camera with defaults
           camera: {

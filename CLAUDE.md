@@ -93,6 +93,7 @@ React + Three.js interactive viewer:
 | Component | Status | Documentation |
 |-----------|--------|---------------|
 | Physical Layer | Complete | [docs/world/01_physical_layer/](docs/world/01_physical_layer/README.md) |
+| Biome System | Complete | [docs/world/world.md#biomes](docs/world/world.md) |
 | Cadastral Layer | Complete | [docs/world/world.md#cadastral-layer](docs/world/world.md) |
 | Network Layer | Complete | [docs/world/02_network_layer/](docs/world/02_network_layer/README.md) |
 | Settlements | Basic | [docs/world/world.md#settlements--urbanization](docs/world/world.md) |
@@ -127,7 +128,7 @@ World generation parameters via `WorldConfig` in `@colonies/shared`:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `seed` | 12345 | Deterministic RNG seed |
-| `mapSize` | 1000 | Map size in cells |
+| `mapSize` | 10000 | Map size in meters (10km default, 1 unit = 1 meter) |
 
 ### Island Shape
 
@@ -140,7 +141,7 @@ World generation parameters via `WorldConfig` in `@colonies/shared`:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `peakElevation` | 300 | Maximum elevation in meters |
+| `peakElevation` | 1500 | Maximum elevation in meters |
 | `hilliness` | 0.3 | Rolling terrain amount (0-1) |
 | `elevationBlendPower` | 2 | Coastal flatness (higher=flatter) |
 
